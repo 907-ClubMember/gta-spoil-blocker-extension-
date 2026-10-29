@@ -1,0 +1,49 @@
+:root{--bg:#fff;--fg:#111827;--muted:#4b5563;--line:#e5e7eb;--card:#f9fafb;--accent:#b45309;--accent-fg:#fff;--ok:#047857;--warn:#b91c1c}
+@media (prefers-color-scheme:dark){:root{--bg:#111827;--fg:#f3f4f6;--muted:#9ca3af;--line:#374151;--card:#1f2937;--accent:#f59e0b;--accent-fg:#111827;--ok:#34d399;--warn:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:0 0 4px}
+p{margin:0 0 8px}.help{color:var(--muted);font-size:13.5px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:0 0 14px}
+label.row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;cursor:pointer}
+label.row input{margin-top:4px;flex:none}
+label.row b{display:block;font-weight:600}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:8px 12px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.55;cursor:default}
+input[type=text],select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);flex:1;min-width:0}
+select{width:100%}
+.add{display:flex;gap:8px;margin:8px 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;gap:6px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:13.5px}
+.chip button{padding:0 7px;border-radius:999px;line-height:1.4}
+.status{font-weight:600}.status.on{color:var(--ok)}.status.off{color:var(--warn)}
+.msg{min-height:1.4em;font-size:13.5px;margin-top:6px}
+a{color:var(--accent)}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.seg button{flex:1 1 auto}
+.seg button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.kinds{margin:12px 0 0}
+.kinds h3{font-size:14px;margin:0 0 2px;color:var(--muted);text-transform:none}
+label.kind{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,230px);gap:4px 12px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+label.kind b{display:block;font-weight:600}
+label.kind .help{display:block}
+@media (max-width:480px){label.kind{grid-template-columns:1fr}}
+.site-examples{margin:0 0 8px;padding-left:18px}.site-examples li{margin:2px 0}
+code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}
+.site-choices{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}
+.site-choices .help{margin:0}
+button.pill{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%}
+button.pill code{color:var(--muted)}
+.site-rows{list-style:none;margin:8px 0 0;padding:0}
+.site-row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.site-row code{flex:1;min-width:0}
+.kind-tag{flex:none;font-size:12px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 8px;background:var(--bg);min-width:5.6em;text-align:center}
+.site-row button{flex:none;padding:4px 10px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:480px){.site-row{flex-wrap:wrap}.site-row code{flex-basis:100%;order:3}.site-row button{margin-left:auto}}
+.mark-safe{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.mark-safe button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%}
+.mark-safe code{color:var(--muted)}
+/* A very long address wraps inside its box instead of running past the edge. */
+button.pill code,.mark-safe code,.site-row code,.safe-why,.site-examples code{overflow-wrap:anywhere;word-break:break-all;max-width:100%;white-space:normal;text-align:left}

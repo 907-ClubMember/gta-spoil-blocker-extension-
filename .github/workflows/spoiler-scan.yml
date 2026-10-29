@@ -1,0 +1,34 @@
+name: Spoiler scan
+# Every new or edited issue, comment and pull request is checked against the published list (.github/scripts/spoiler-scan.ts).
+# A match is taken out of sight automatically: the maintainer does not read GTA 6 content after release. Logs show counts only.
+# Safe on pull requests from forks: it checks out this repo's own default branch, never the pull request's code, and reads the
+# pull request's changed lines through the API.
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+concurrency:
+  group: spoiler-scan-${{ github.event.issue.number || github.event.pull_request.number }}
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npx tsx .github/scripts/spoiler-scan.ts

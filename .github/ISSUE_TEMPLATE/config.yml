@@ -1,0 +1,6 @@
+# Reports only through the form, which the spoiler scan checks. Safety problems go to private reporting (SECURITY.md).
+blank_issues_enabled: false
+contact_links:
+  - name: Report a safety problem privately
+    url: https://github.com/907-ClubMember/gta-spoil-blocker-extension-/security/advisories/new
+    about: Something that could harm a user's computer or privacy. Please don't post it publicly.

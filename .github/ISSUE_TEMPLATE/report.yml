@@ -1,0 +1,40 @@
+name: Report a spoiler or a wrongly hidden post
+description: Tell us about a spoiler that got through, or something hidden that should not have been.
+labels: [report]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Issues here are public. Please do not type the spoiler itself.**
+        After GTA 6's release the maintainer does not read GTA 6 details: reports are checked by a tool from the link alone, and any report that spells out a spoiler is closed unread.
+        Give a link to where you saw it instead, and describe it without giving details (for example "a character name in a YouTube title").
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened?
+      options:
+        - A spoiler was NOT hidden
+        - Something was hidden that should NOT have been
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Link to the page
+      placeholder: https://...
+    validations:
+      required: true
+  - type: dropdown
+    id: protect
+    attributes:
+      label: What were you protecting? (Settings > What to protect)
+      options: [Only the big stuff, Main story (the default), Everything, Custom, Not sure]
+  - type: dropdown
+    id: strictness
+    attributes:
+      label: Strictness (Settings > Advanced, if you changed it)
+      options: [Medium (the default), Light, Strict, Not sure]
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else (no spoilers please)

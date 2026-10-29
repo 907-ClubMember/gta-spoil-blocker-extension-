@@ -1,0 +1,25 @@
+name: List is generated
+# lists/dist/spoilers.json is built by the maintainer's job and pushed straight to main, never through a pull request.
+# A pull request that changes it fails this check and gets a note. It never runs the pull request's code.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse changes to the generated list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' | grep -qx 'lists/dist/spoilers.json'; then
+            gh pr comment "$PR" --repo "$REPO" --body "This pull request changes lists/dist/spoilers.json, which is generated automatically and never edited by hand. To report a missed or wrongly hidden name, open an issue with the report form and give a link only (see the README)."
+            echo "the generated list was changed: refused"
+            exit 1
+          fi
+          echo "the generated list is untouched"

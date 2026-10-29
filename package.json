@@ -1,0 +1,21 @@
+{
+  "name": "gta-spoil-blocker-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hides GTA 6 spoilers across the web. Runs locally; the spoiler list updates itself.",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.4",
+    "@types/node": "26.6.4",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "wxt": "0.21.4"
+  }
+}
