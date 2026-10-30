@@ -8,6 +8,9 @@ const POST_SELECTOR = 'article, [role="article"], li';
 const MAX_POST_CHARS = 1500;
 const THREAD_HEADING = 'h1, h2, h3, [role="heading"]';
 const BLOCK_SELECTOR = 'article, [role="article"], li, p, h1, h2, h3, h4, h5, h6, blockquote, td, dd, figure';
+/** Blocks that can hold a whole article's worth of other content, so they are hidden only when short. */
+const BIG_BLOCK_SELECTOR = 'article, [role="article"], li, td, dd';
+const SMALL_BOX_SELECTOR = 'div, section, aside, tr, dl';
 /** Smallest units whose text is read as one piece, so a name split by bold or link markup is still caught. */
 const JOIN_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, a, blockquote, td, dd, figcaption';
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT', 'CODE', 'PRE', 'SVG']);
@@ -779,7 +782,12 @@ export class Scanner {
       const listed = !!key && this.opts.accounts!.has(key);
       // Only an account link in the owner row decides; a hashtag or sound link there says nothing about the owner.
       if (own && key) this.ownPost(a, own, listed);
-      else if (listed) this.hide(this.containerFor(a), { categories: [], custom: false }, 'account', a);
+      else if (listed) {
+        const box = this.containerFor(a);
+        // "Cover pictures only, never words": just the post's pictures and videos.
+        if (this.opts.thumbsOnly) for (const m of box.querySelectorAll('img, video')) this.hide(m, { categories: [], custom: false }, 'account', a);
+        else this.hide(box, { categories: [], custom: false }, 'account', a);
+      }
     }
   }
 
@@ -796,6 +804,10 @@ export class Scanner {
       // Its text too: it may have changed while the card was hidden.
       this.scan(card);
       return;
+    }
+    // "Pictures only": the account rule hid the post's pictures, not the card; they are judged afresh the same way.
+    if (this.opts.thumbsOnly) {
+      for (const m of this.containerFor(a).querySelectorAll('[data-gsb-why="account"]')) if (this.hidden.has(m) && !this.revealed.has(m)) this.unhide(m);
     }
     this.checkLinks(a);
   }
@@ -885,8 +897,8 @@ export class Scanner {
     if (this.skip(el) || isEmote(el)) return;
     const text = this.mediaText(el);
     const res = text ? this.matcher.match(text, this.pageContext) : null;
-    // Inside a known card the whole card goes, like it does for text; elsewhere just the image.
-    if (res) this.hide(this.cardFor(el) ?? el, res, 'alone', el);
+    // Inside a known card the whole card goes, like it does for text; elsewhere, or with "pictures only", just the image.
+    if (res) this.hide(this.opts.thumbsOnly ? el : (this.cardFor(el) ?? el), res, 'alone', el);
     else {
       this.mediaPost(el);
       this.nearGame(el, text);
@@ -985,7 +997,7 @@ export class Scanner {
     if (!this.bigMedia(el)) return;
     // Counts and times are not words: "3  16  79  1.5K  0:12" under a clip says nothing.
     const words = this.ownText(post, cards).split(/\s+/).filter((w) => /\p{L}{2,}/u.test(w) && !/^\d/.test(w));
-    if (words.length < MEDIA_ONLY_WORDS) this.hide(post, { categories: [], custom: false }, 'media');
+    if (words.length < MEDIA_ONLY_WORDS) this.hide(this.opts.thumbsOnly ? el : post, { categories: [], custom: false }, 'media');
   }
 
   private skip(el: Element): boolean {
@@ -1131,13 +1143,23 @@ export class Scanner {
     const post = el.closest(POST_SELECTOR);
     if (post && (post.textContent?.length ?? 0) <= MAX_POST_CHARS) return post;
     const c = el.closest(BLOCK_SELECTOR);
-    if (c && c !== this.doc.body && c !== this.doc.documentElement) return c;
+    if (c && c !== this.doc.body && c !== this.doc.documentElement && (!c.matches(BIG_BLOCK_SELECTOR) || (c.textContent?.length ?? 0) <= MAX_POST_CHARS)) return c;
+    // Inside something long, cover only the small part around the match, never the whole article or list.
+    const box = el.closest(SMALL_BOX_SELECTOR);
+    // Length says nothing about pictures or page furniture: a short wrapper holding those may be the whole app.
+    if (box && (box.textContent?.length ?? 0) <= MAX_POST_CHARS && (!c || c.contains(box)) && !box.querySelector('img, video, nav, header, footer, main')) return box;
     return el;
+  }
+
+  private pageLevel(el: Element): boolean {
+    return el === this.doc.body || el === this.doc.documentElement || el.matches('main');
   }
 
   /** `at` is where the match itself sits, when the hide comes from a match and not from judging the post. */
   private hide(el: Element, res: MatchResult, why: Why = 'alone', at?: Element): void {
     if (this.revealed.has(el)) return;
+    // Never the whole page: that would blank it for one match.
+    if (this.pageLevel(el) && !this.cardFor(el)) return;
     if (this.opts.main) {
       if (el.closest('[data-gsb-under]')) return;
       // A main post the user showed stays shown, even when the site builds the element again.

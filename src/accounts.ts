@@ -16,7 +16,7 @@ export interface SpoilerAccount {
   words: string[];
 }
 
-// Read 2026-10-28 from the channel's own page (read-only): its id, its handle, and the one other account its
+// Read from the channel's own page: its id, its handle, and the one other account its
 // description links to ("Follow me on Twitter"). Accounts the channel does not link itself are not guessed.
 export const SPOILER_ACCOUNTS: readonly SpoilerAccount[] = [
   {

@@ -20,13 +20,13 @@ export default defineBackground(() => {
       title: 'Hide this on every page',
       contexts: ['selection'],
     });
+    // The first download comes from the update timer a minute later, and never under "Only when I press" (the privacy page
+    // promises that); a list ships inside the extension, so nothing is missing meanwhile.
     void scheduleAlarm();
-    void updateList(false);
   });
 
   chrome.runtime.onStartup.addListener(() => {
     void scheduleAlarm();
-    void updateList(false);
   });
 
   chrome.alarms.onAlarm.addListener((a) => {

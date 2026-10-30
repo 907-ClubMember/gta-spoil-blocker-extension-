@@ -34,7 +34,7 @@ export const HIDE_MODE_TEXT = {
 export const PRESET_TEXT = {
   casual: { name: 'Casual', help: 'Light filtering, a gentle blur. Only obvious spoilers; pictures are left alone unless their own words give something away.' },
   careful: { name: 'Careful (default)', help: 'Medium filtering with the usual blur. A good balance.' },
-  blackout: { name: 'Total blackout', help: 'Strict filtering, solid boxes, and anything hidden is removed with no label. For people who want to see nothing.' },
+  blackout: { name: 'Total blackout', help: 'Strict filtering, solid boxes, and anything hidden is removed with no label. For people who want to see as little as possible. Which names count is still set by What to protect, so pick Everything there too.' },
   custom: { name: 'Custom', help: 'You have changed something below. Pick a preset to start again from one.' },
 } as const;
 
@@ -58,7 +58,7 @@ export const CATEGORY_MODE_TEXT = {
 } as const;
 
 export const PROTECT_TEXT = {
-  big: { name: 'Only the big stuff', help: 'Hides only the biggest moments: how missions go, deaths, twists and the ending. Everything else is left alone.' },
+  big: { name: 'Only the big stuff', help: 'Hides only the biggest moments: how missions go, deaths, twists and the ending. Other list names are left alone. Rare made-up names and posts about leaks, trailers and endings are still hidden on pages about the game; each has its own setting.' },
   story: { name: 'Main story (recommended)', help: 'Also hides the main characters, the groups in the story and the main missions. Side characters, small places and secrets are left alone.' },
   all: { name: 'Everything', help: 'Hides everything on the list that could give the story away, including side characters, secrets and collectibles.' },
   custom: { name: 'Custom', help: 'You changed one of the choices below. The rows you did not change still work as the button you started from, so a side character who turns out to matter stays hidden. Pick one of the other buttons to start again from it.' },
@@ -77,9 +77,9 @@ export const KIND_TEXT = {
   side: { name: 'Side characters', example: 'Example: a shopkeeper you meet twice, "Pip Varga"' },
   minor: { name: 'Walk-on characters', example: 'Example: a taxi driver in one scene' },
   group: { name: 'Gangs and groups', example: 'Example: "the Northside Crew"' },
-  brand: { name: 'Brands and businesses', example: 'Example: a made-up burger chain' },
-  setting: { name: 'Cities and regions', example: 'Example: "Port Valmere"' },
-  area: { name: 'Towns, streets and landmarks', example: 'Example: "Old Dock Street"' },
+  brand: { name: 'Brands and businesses', example: 'Example: a made-up burger chain. Most of these only tell the extension a page is about the game; they are not hidden themselves, even on Hide' },
+  setting: { name: 'Cities and regions', example: 'Example: "Port Valmere". Most of these only tell the extension a page is about the game; they are not hidden themselves, even on Hide' },
+  area: { name: 'Towns, streets and landmarks', example: 'Example: "Old Dock Street". Most of these only tell the extension a page is about the game; they are not hidden themselves, even on Hide' },
   storyplace: { name: 'Places that matter to the story', example: 'Example: a secret hideout' },
   mission: { name: 'Story missions', example: 'Example: "The Harbour Swap"' },
   heist: { name: 'Heists', example: 'Example: "The Glass Tower Job"' },
@@ -122,8 +122,8 @@ export const RARE_TEXT = {
 
 export const ORDINARY_TEXT = {
   name: 'Ordinary-sounding names',
-  help: 'Names that are also everyday words or first names. They are easy to hide by mistake, so pick how much to trust them.',
-  options: { light: 'Never hide them', medium: 'Only with game mention', strict: 'Always hide them' },
+  help: 'Names that are also everyday words or first names. They are easy to hide by mistake, so pick how much to trust them. This also sets how closely posts are judged: "Never hide them" stops hiding leak, trailer and ending posts on pages about the game too.',
+  options: { light: 'Never hide them (posts about leaks and endings show too)', medium: 'Only with game mention', strict: 'Always hide them' },
 } as const;
 
 export const PART_TEXT = {
@@ -131,7 +131,7 @@ export const PART_TEXT = {
   comments: { name: 'Comments and replies', help: 'The comment sections under posts and videos.' },
   search: { name: 'Search results pages', help: 'Pages that list the results of a search.' },
   sidebar: { name: 'Sidebars and recommended', help: 'Side columns, "up next" and related lists.' },
-  news: { name: 'News articles', help: 'The text of articles on news sites.' },
+  news: { name: 'News articles', help: 'The text of articles on sites that mark them as articles.' },
 } as const;
 
 export const REPLIES_TEXT = {
@@ -169,6 +169,13 @@ export const CATEGORY_TEXT = {
   trailers: { name: 'Trailers and reveals', help: 'Trailer breakdowns and official reveal coverage.' },
 } as const;
 
+/** Launch-week blackout (off by default). */
+export const BLACKOUT_TEXT = {
+  name: 'Launch week: hide every post about GTA 6',
+  help: 'For the first days after the game comes out, any post that names GTA 6 is hidden, whatever else it says. It catches leaks and new features before the spoiler list knows them. Sites you marked safe are left alone. It starts once the spoiler list gives the release date, and counts from that day.',
+  options: { 0: 'Off', 3: 'First 3 days', 7: 'First week', 14: 'First 2 weeks' },
+} as const;
+
 export const UPDATE_TEXT = {
   hourly: 'Every hour (recommended): new spoilers get hidden within the hour',
   '6h': 'Every 6 hours',
@@ -177,8 +184,15 @@ export const UPDATE_TEXT = {
 } as const;
 
 export const TEXT = {
+  resetName: 'Start over',
+  resetHelp: 'Puts every setting back the way it came, including your own words, sites and accounts. The spoiler list is kept.',
+  resetButton: 'Reset all settings',
+  resetConfirm: 'Press again to reset everything',
   masterOn: 'Spoiler blocking is ON. Spoilers on the pages you visit are being hidden.',
   masterOff: 'Spoiler blocking is OFF. Nothing is being hidden.',
+  masterFinished: 'Nothing is being hidden: you said you have finished the story. To hide again, change that in Time and progress in the settings.',
+  masterPaused: 'Paused. Nothing is being hidden until the pause ends.',
+  masterEnded: 'Nothing is being hidden: your "Stop hiding on this day" date has passed. To hide again, clear it in Time and progress in the settings.',
   masterToggle: 'Turn spoiler blocking on or off everywhere',
   hideImages: {
     name: 'Also hide spoiler pictures and video thumbnails',

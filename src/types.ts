@@ -36,6 +36,8 @@ export interface Term {
 export interface SpoilerList {
   v: number;
   terms: Term[];
+  /** The game's release day (YYYY-MM-DD), when the list publishes one: the launch-week blackout counts from it. */
+  release?: string;
 }
 
 /**

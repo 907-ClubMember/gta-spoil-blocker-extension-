@@ -135,7 +135,7 @@ export const ADAPTERS: Adapter[] = [
   {
     name: 'Threads',
     hosts: ['threads.com', 'threads.net'],
-    // Read from a live profile and a post page (2026-10-29, logged out, structure only): every post and every reply is one
+    // Read from a live profile and a post page: every post and every reply is one
     // pressable block, side by side in the page (replies are not nested inside the post they answer).
     containers: 'div[data-pressable-container]',
   },

@@ -54,8 +54,8 @@ of Take-Two Interactive.
 This repository is here so anyone can check what the extension does on their computer.
 
 - **What it downloads:** one file, the spoiler list, from
-  `raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/main/lists/dist/spoilers.json`. It is plain names
-  (look at [lists/dist/spoilers.json](lists/dist/spoilers.json)), never code. Nothing else is fetched or sent; the address is in
+  `raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/main/lists/dist/spoilers.json`. It holds only names, never code. They are
+  base64-encoded so that opening the file doesn't spoil you; `src/list/index.ts` shows how it is read. Nothing else is fetched or sent; the address is in
   `src/list/store.ts`.
 - **Permissions** (in `wxt.config.ts`): `storage` (your settings and the list), `alarms` (the update timer), `contextMenus`
   (the right-click "hide this"), `activeTab` (pause on the current site), all pages (to check them for spoilers), and
@@ -63,6 +63,5 @@ This repository is here so anyone can check what the extension does on their com
 - **Same code as the store:** each store version has a tag here (for example `v0.1.0`). Build that tag and compare it with
   the store version.
 
-Chrome extension (Manifest V3, WXT, TypeScript). Chrome extension (Manifest V3, WXT, TypeScript):
-`npm ci`, then `npm run build` (output in `.output/`). Code changes are not taken. To report a safety problem privately, see [SECURITY.md](SECURITY.md); to report a missed or wrongly hidden spoiler,
+To build it: `npm ci`, then `npm run build` (output in `.output/`). Pull requests with code are not accepted. To report a safety problem privately, see [SECURITY.md](SECURITY.md); to report a missed or wrongly hidden spoiler,
 use the report form above and give a link only.

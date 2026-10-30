@@ -4,6 +4,8 @@ import { CATEGORIES, isKind, type SpoilerList, type Term } from '../types';
 export interface PublishedList {
   v: number;
   d: string;
+  /** Release day (YYYY-MM-DD), optional; an extension that does not know it ignores it. */
+  r?: string;
 }
 
 export const MAX_LIST_BYTES = 2_000_000;
@@ -15,6 +17,9 @@ export const MIN_MARKER_LENGTH = 3;
 export const MAX_TERM_WORDS = 10;
 /** Far above any real list. Beyond this the whole list is treated as suspicious and the stored one is kept. */
 export const MAX_TERMS = 20_000;
+
+/** Hourly publishing takes over ten years to move this far; only a mistake or an attack does it in one step. */
+export const MAX_VERSION_JUMP = 100_000;
 
 /** Letters, marks, digits, single spaces and plain name punctuation. No control, zero-width, bidi or markup characters. */
 const SAFE_TERM = /^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} '\u2019&.,:!?#-]*$/u;
@@ -32,7 +37,7 @@ export class ListError extends Error {}
 
 export function encodeList(list: SpoilerList): PublishedList {
   const json = JSON.stringify(list.terms);
-  return { v: list.v, d: Buffer.from(json, 'utf8').toString('base64') };
+  return { v: list.v, d: Buffer.from(json, 'utf8').toString('base64'), ...(list.release ? { r: list.release } : {}) };
 }
 
 function fromBase64(b64: string): string {
@@ -45,6 +50,13 @@ function fromBase64(b64: string): string {
  * Validate and decode a downloaded list. Throws ListError for anything structurally wrong (terms with unsafe text are dropped),
  * so the caller keeps the last good list. `storedVersion` blocks rollbacks.
  */
+/** A real calendar day as YYYY-MM-DD: "2026-99-99" or "2026-02-31" would silently leave the launch-week blackout off. */
+function isRealDate(r: unknown): r is string {
+  if (typeof r !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(r)) return false;
+  const day = new Date(`${r}T00:00:00Z`);
+  return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === r;
+}
+
 export function decodeList(raw: string, storedVersion: number): SpoilerList {
   if (raw.length > MAX_LIST_BYTES) throw new ListError('list too large');
 
@@ -56,8 +68,10 @@ export function decodeList(raw: string, storedVersion: number): SpoilerList {
   }
   if (!pub || typeof pub !== 'object') throw new ListError('bad shape');
   const { v, d } = pub as Record<string, unknown>;
-  if (!Number.isInteger(v) || (v as number) < 1 || typeof d !== 'string') throw new ListError('bad shape');
+  if (!Number.isSafeInteger(v) || (v as number) < 1 || typeof d !== 'string') throw new ListError('bad shape');
   if ((v as number) <= storedVersion) throw new ListError('not newer');
+  // A wild version would make every later list look old, which turns one bad push into a permanent one.
+  if ((v as number) > storedVersion + MAX_VERSION_JUMP) throw new ListError('version too far ahead');
 
   let terms: unknown;
   try {
@@ -72,15 +86,15 @@ export function decodeList(raw: string, storedVersion: number): SpoilerList {
   const cats = new Set<string>(CATEGORIES);
   const clean: Term[] = [];
   for (const t of terms) {
-    if (!t || typeof t !== 'object') throw new ListError('bad term');
+    // A bad entry is dropped, not fatal: one odd entry, or a kind only newer versions know, must not block every other update.
+    if (!t || typeof t !== 'object') continue;
     const { t: text, c, s, tr, k, l, o, r } = t as Record<string, unknown>;
-    if (typeof text !== 'string') throw new ListError('bad term');
-    if (typeof c !== 'string' || !cats.has(c)) throw new ListError('bad category');
-    if (s !== 'strong' && s !== 'weak' && s !== 'context') throw new ListError('bad strength');
+    if (typeof text !== 'string') continue;
+    if (typeof c !== 'string' || !cats.has(c)) continue;
+    if (s !== 'strong' && s !== 'weak' && s !== 'context') continue;
     // Kind and raised level are optional: lists made before levels existed carry neither.
-    if (k !== undefined && !isKind(k)) throw new ListError('bad kind');
-    if (l !== undefined && l !== 1 && l !== 2 && l !== 3) throw new ListError('bad level');
-    // Bad text is dropped, not fatal: one odd entry must not block every other update.
+    if (k !== undefined && !isKind(k)) continue;
+    if (l !== undefined && l !== 1 && l !== 2 && l !== 3) continue;
     const safe = cleanTermText(text, s === 'context');
     if (safe === null) continue;
     const term: Term = { t: safe, c: c as Term['c'], s };
@@ -91,7 +105,8 @@ export function decodeList(raw: string, storedVersion: number): SpoilerList {
     if (l !== undefined) term.l = l;
     clean.push(term);
   }
-  return { v: v as number, terms: clean };
+  const r = (pub as Record<string, unknown>).r;
+  return { v: v as number, terms: clean, ...(isRealDate(r) ? { release: r } : {}) };
 }
 
 /** Counts per category, safe to show in the UI. */

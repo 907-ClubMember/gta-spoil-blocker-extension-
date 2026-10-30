@@ -123,7 +123,9 @@ export class Matcher {
       if (tokens.length >= 2 && tokens.length <= 4 && tokens.join('').length >= 3) put([tokens.join('')]);
     };
 
-    for (const t of opts.terms) if (opts.categories.has(t.c)) add(t.t, t.c, t.s, KIND_GROUP[kindOf(t)], t.o, t.r);
+    // A marker only says a text is about the game and never hides on its own: it stays even when its group is set to never
+    // hide, or switching off one group would stop every other group's names from hiding on pages about the game.
+    for (const t of opts.terms) if (opts.categories.has(t.c) || t.s === 'context') add(t.t, t.c, t.s, KIND_GROUP[kindOf(t)], t.o, t.r);
     for (const w of opts.customWords) add(w, 'custom', 'strong', 'custom');
 
     const hint = (tokens: string[]) => {
@@ -296,8 +298,11 @@ export class Matcher {
         if (e.s === 'strong') {
           strong.add(e.c);
           strongGroups.add(e.g);
-          context = true;
-          mentions++;
+          // A person's own word hides what holds it, but says nothing about whether the page is about the game.
+          if (e.c !== 'custom') {
+            context = true;
+            mentions++;
+          }
         } else if (e.s === 'context') {
           context = true;
           mentions++;
@@ -345,7 +350,7 @@ const NO_SPOILER_BETWEEN = new Set(['major', 'big', 'real', 'any', 'plot', 'stor
 
 /**
  * "spoiler"/"spoilers" at `i` asks for no spoilers ("no spoilers please", "spoiler free", "without any spoilers"), so it is no sign
- * that the post spoils (2026-10-29: such a post on a page about the game was hidden). Other spoiler words ("dies", "ending") still count.
+ * that the post spoils. Other spoiler words ("dies", "ending") still count.
  */
 function asksNoSpoilers(w: readonly string[], i: number): boolean {
   if (w[i] !== 'spoiler' && w[i] !== 'spoilers') return false;

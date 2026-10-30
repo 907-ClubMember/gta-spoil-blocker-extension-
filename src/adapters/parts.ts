@@ -10,7 +10,7 @@ const GENERIC: Record<PagePart, string> = {
   comments: '#comments, .comments, [id^="comment-"], [data-testid="comments"]',
   search: '',
   sidebar: 'aside, [role="complementary"]',
-  news: '[itemtype*="Article"], .article-body, .entry-content, .post-content, article:not([role="article"]):not([data-testid="tweet"])',
+  news: '[itemtype*="Article"], .article-body, .entry-content, .post-content',
 };
 
 const SITE: { hosts: string[]; parts: Partial<Record<PagePart, string>> }[] = [
@@ -34,9 +34,9 @@ const SITE: { hosts: string[]; parts: Partial<Record<PagePart, string>> }[] = [
   { hosts: ['x.com', 'twitter.com'], parts: { sidebar: '[data-testid="sidebarColumn"]', titles: '[data-testid="trend"]' } },
 ];
 
-/** Pages whose address says they are a search. */
+/** Pages whose address says they are a search. A bare number in `s=` is a share tag (X's `?s=20`), not a search. */
 export function isSearchPage(pathname: string, search: string): boolean {
-  return /\/(search|results|find)\b/i.test(pathname) || /[?&](q|query|search_query|s)=/i.test(search);
+  return /\/(search|results|find)\b/i.test(pathname) || /[?&](q|query|search_query)=/i.test(search) || /[?&]s=(?!\d*(&|$))/i.test(search);
 }
 
 /** One selector for everything on this site that belongs to a part that is switched off, or null when none are. */

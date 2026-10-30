@@ -45,6 +45,7 @@ export type UpdateResult =
   | { status: 'error'; reason: string };
 
 export const MANUAL_COOLDOWN_MS = 60_000;
+const MIN_LIST_FOR_SHRINK_CHECK = 100;
 
 /**
  * Fetch the published list. Keeps the last good list on any failure.
@@ -70,6 +71,8 @@ export async function updateList(manual: boolean, now = Date.now(), fetchImpl: t
     const text = await res.text();
     try {
       const list = decodeList(text, current.v);
+      // An empty or collapsed list would quietly turn hiding off: keep the old one.
+      if (list.terms.length === 0 || (current.terms.length >= MIN_LIST_FOR_SHRINK_CHECK && list.terms.length < current.terms.length / 4)) throw new ListError('list too small');
       next.etag = res.headers.get('etag') ?? undefined;
       next.updatedAt = now;
       await chrome.storage.local.set({ list, listMeta: next });

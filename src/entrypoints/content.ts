@@ -5,7 +5,7 @@ import { activeList } from '../list/store';
 import { CATEGORIES } from '../types';
 import { shapeTerms } from '../levels';
 import { adapterFor } from '../adapters';
-import { addressChange, isSuspended, listVerdict, loadSettings, settingsForUrl, type ListVerdict, type Settings } from '../settings';
+import { BLACKOUT_WORDS, addressChange, blackoutNextChange, blackoutOn, isSuspended, listVerdict, loadSettings, settingsForUrl, type ListVerdict, type Settings } from '../settings';
 import { isSearchPage, offSelector } from '../adapters/parts';
 
 export default defineContentScript({
@@ -41,6 +41,9 @@ export default defineContentScript({
     /** The Safe/Strict answer the running scan was started with, and the settings it was started from. */
     let verdict: ListVerdict = 'normal';
     let lastSaved: Settings | undefined;
+    /** This page was left unread as a search page with that part switched off: moving to or from one starts again. */
+    let searchSkipped = false;
+    const skipsSearch = (saved: Settings, url: string) => !settingsForUrl(saved, url, location.hostname).parts.search && isSearchPage(location.pathname, location.search);
     /** Top frame: the last address seen, so an unchanged address costs one string compare. */
     let seenHref = '';
     const fallbackUrl = () => {
@@ -64,7 +67,7 @@ export default defineContentScript({
       });
     /** The address to decide by right now (frames: the last known one). */
     const decisionUrl = () => (isTop ? location.href : tabUrl ?? fallbackUrl());
-    /** The address changed without a reload: start again only if that changes the Safe/Strict answer. */
+    /** The address changed without a reload: start again only if that changes the Safe/Strict answer or the search-page skip. */
     const checkAddress = () => {
       if (isTop) {
         if (location.href === seenHref) return;
@@ -75,7 +78,7 @@ export default defineContentScript({
       }
       if (!lastSaved) return;
       const r = addressChange(lastSaved, verdict, decisionUrl());
-      if (r.restart) void start();
+      if (r.restart || skipsSearch(lastSaved, decisionUrl()) !== searchSkipped) void start();
     };
     let scanner: Scanner | null = null;
     /** Items the user showed, kept across restarts for the people who switched "remember reveals" on. */
@@ -154,6 +157,7 @@ export default defineContentScript({
       lastSaved = saved;
       verdict = listVerdict(saved, url);
       const s = settingsForUrl(saved, url, host);
+      searchSkipped = skipsSearch(saved, url);
       if (!s.enabled) return void report(false);
       const now = Date.now();
       if (isSuspended(s, now)) {
@@ -163,7 +167,7 @@ export default defineContentScript({
         return void report(false);
       }
       // A search page counts as one part; when it is switched off nothing on it is read.
-      if (!s.parts.search && isSearchPage(location.pathname, location.search)) return void report(false);
+      if (searchSkipped) return void report(false);
 
       const list = await activeList();
       if (mine !== generation) return;
@@ -177,9 +181,13 @@ export default defineContentScript({
         categories: new Set(CATEGORIES.filter((c) => s.categories[c])),
         allowWords: s.allowWords,
         // A built-in spoiler account's name in a post hides it like one of the person's own words.
-        customWords: [...s.customWords, ...accountWords(s)],
+        // Launch-week blackout (optional, off by default): every post naming the game is hidden.
+        customWords: [...s.customWords, ...accountWords(s), ...(blackoutOn(s, list.release, Date.now()) ? BLACKOUT_WORDS : [])],
         hintWords: s.hintWords,
       });
+      // A tab left open across the blackout's first or last day picks up the change by itself.
+      const turn = blackoutNextChange(s, list.release, Date.now());
+      if (turn) wake = window.setTimeout(() => void start(), Math.min(turn - Date.now() + 1000, 2 ** 31 - 1));
       const sc = new Scanner(document, matcher, { hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, revealMode: s.revealMode, keepRevealed: s.rememberReveals ? keptReveals : undefined, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, thumbsOnly: s.thumbsOnly, hideImages: s.hideImages, hideMediaPosts: s.hideMediaPosts, mediaNearGame: s.mediaNearGame, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, chat: site?.chat, threads: site?.threads, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, accounts, ownPage: site?.ownPage });
       scanner = sc;
       if (!isTop) sc.setOuterContext(outer);

@@ -19,3 +19,5 @@
 **Gmail, Discord and other private pages:** matching happens locally, like everywhere else. Hidden items are only blurred or removed on your screen.
 
 **Permissions and why:** `storage` (settings and the list), `alarms` (the update timer), `contextMenus` (the "hide this on every page" right-click), `activeTab` (pause on the current site, and read the address of the tab you open the popup on), access to all pages and the frames in them (to scan them for spoilers), and access to `raw.githubusercontent.com` (the list download).
+
+**One limit:** hiding changes the page, and the page's own scripts can see those changes. A site could work out that the extension is installed, or test whether a word you added gets hidden. Nothing is sent by the extension; this is how any page-changing extension works.

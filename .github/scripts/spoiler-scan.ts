@@ -11,17 +11,20 @@ import { Matcher } from '../../src/matcher/index';
 import { CATEGORIES, type Term } from '../../src/types';
 
 /**
- * Names that count: those that hide everywhere, and longer names (two words or more) that need a game mention. A repo about the
- * game always "mentions the game", so a single everyday word ("Uncle") would close ordinary bug reports; it does not count here.
+ * Names that count: those that hide everywhere. A repo about the game always "mentions the game", and this step closes issues and
+ * deletes comments with no one watching, so a name that needs a mention, which can be everyday words ("What Happened"), does not count.
  */
 export function scanTerms(terms: Term[]): Term[] {
-  return terms.filter((t) => t.s === 'strong' || (t.s === 'weak' && !t.o && t.t.trim().split(/\s+/).length >= 2)).map((t) => ({ ...t, s: 'strong' as const }));
+  return terms.filter((t) => t.s === 'strong');
 }
+
+const FORM_HEADINGS = /^### (What happened\?|Link to the page|What were you protecting\?.*|Strictness.*|Anything else.*)$/gm;
 
 /** Does any of these texts name something on the list? */
 export function namesSpoiler(texts: string[], terms: Term[]): boolean {
   const m = new Matcher({ terms: scanTerms(terms), strictness: 'medium', categories: new Set(CATEGORIES), allowWords: [], customWords: [] });
-  return texts.some((t) => !!t && m.inspect(t).strong.size > 0);
+  // The report form's own headings are not the writer's words; any other heading is.
+  return texts.some((t) => !!t && m.inspect(t.replace(FORM_HEADINGS, '')).strong.size > 0);
 }
 
 const NOTICE = 'This was taken out of sight automatically: it named something on the spoiler list. The maintainer does not read GTA 6 '
@@ -35,8 +38,20 @@ function main() {
   const repo = process.env.GITHUB_REPOSITORY!;
   const dry = process.env.DRY_RUN === '1';
   const gh = (...a: string[]) => (dry ? (console.log(`would run: gh ${a[0]} ${a[1] ?? ''} ...`), '') : execFileSync('gh', a, { encoding: 'utf8' }));
+  // A pull request review: a submitted review cannot be deleted, so its text is replaced.
+  if (ev.review) {
+    if (!namesSpoiler([ev.review.body ?? ''], terms)) return console.log('scan: review clean');
+    gh('api', '-X', 'PUT', `repos/${repo}/pulls/${ev.pull_request.number}/reviews/${ev.review.id}`, '-f', `body=${NOTICE}`);
+    return console.log('scan: 1 review hidden');
+  }
   if (ev.comment) {
     if (!namesSpoiler([ev.comment.body ?? ''], terms)) return console.log('scan: comment clean');
+    // A comment on a pull request's changed lines lives under the pull request, not the issue.
+    if (!ev.issue && ev.pull_request) {
+      gh('api', '-X', 'DELETE', `repos/${repo}/pulls/comments/${ev.comment.id}`);
+      gh('pr', 'comment', String(ev.pull_request.number), '--repo', repo, '--body', `A review comment was removed. ${NOTICE}`);
+      return console.log('scan: 1 review comment removed');
+    }
     gh('api', '-X', 'DELETE', `repos/${repo}/issues/comments/${ev.comment.id}`);
     gh('issue', 'comment', String(ev.issue.number), '--repo', repo, '--body', `A comment was removed. ${NOTICE}`);
     return console.log('scan: 1 comment removed');

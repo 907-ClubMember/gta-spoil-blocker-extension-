@@ -8,14 +8,18 @@ on:
     types: [opened, edited]
   issue_comment:
     types: [created, edited]
+  # Comments on a pull request's changed lines, and review texts: separate events on GitHub.
+  pull_request_review_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
 permissions:
   contents: read
   issues: write
   pull-requests: write
-concurrency:
-  group: spoiler-scan-${{ github.event.issue.number || github.event.pull_request.number }}
+# No concurrency group: GitHub would cancel a waiting scan when a third event arrives, leaving that one unchecked.
 jobs:
   scan:
     runs-on: ubuntu-latest

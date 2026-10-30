@@ -2,8 +2,8 @@ import { SPOILER_ACCOUNTS, parseAccount } from '../../accounts';
 import '../../ui/style.css';
 import { choiceRow, el } from '../../ui/dom';
 import { DONATE_URL } from '../../donate';
-import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT } from '../../text';
-import { PAGE_PARTS, applyPreset, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, saveSettings, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
+import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT, BLACKOUT_TEXT } from '../../text';
+import { DEFAULT_SETTINGS, PAGE_PARTS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, saveSettings, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
 import { activeList, describeResult, loadMeta } from '../../list/store';
 import { CATEGORIES, KINDS, KIND_GROUP, KIND_GROUPS } from '../../types';
 import { countByCategory } from '../../list';
@@ -11,15 +11,25 @@ import { countByCategory } from '../../list';
 const app = document.getElementById('app')!;
 let s: Settings;
 
+// Changes made elsewhere while this page is open (the popup's pause, the right-click "hide this") are kept: each save starts
+// from what is stored now, and the page's copy follows every change.
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.settings?.newValue) s = normalizeSettings(changes.settings.newValue);
+  });
+} catch {
+  /* no storage events here: each save still reads first */
+}
+
 /** Any change made by hand turns a named preset into "Custom". */
 async function commit(patch: Partial<Settings>) {
-  s = normalizeSettings({ ...s, ...patch, preset: patch.preset ?? 'custom' });
+  s = normalizeSettings({ ...(await loadSettings()), ...patch, preset: patch.preset ?? 'custom' });
   await saveSettings(s);
 }
 
 /** A change to what is protected. The look preset (Casual, Careful...) is left as it was. */
 async function commitProtect(patch: Partial<Settings>) {
-  s = normalizeSettings({ ...s, ...patch });
+  s = normalizeSettings({ ...(await loadSettings()), ...patch });
   await saveSettings(s);
 }
 
@@ -136,8 +146,15 @@ async function render() {
   const [list, meta] = await Promise.all([activeList(), loadMeta()]);
   const counts = countByCategory(list.terms);
 
+  // Two presses, not a browser pop-up: one stray click must not lose someone's settings.
+  const resetBtn = el('button', {}, TEXT.resetButton);
+  resetBtn.addEventListener('click', () => {
+    if (resetBtn.textContent === TEXT.resetConfirm) void commit(structuredClone(DEFAULT_SETTINGS)).then(render);
+    else resetBtn.textContent = TEXT.resetConfirm;
+  });
+
   const master = el('input', { type: 'checkbox', checked: s.enabled });
-  master.addEventListener('change', () => commit({ enabled: master.checked }));
+  master.addEventListener('change', () => commit({ enabled: master.checked }).then(render));
 
   const imgs = el('input', { type: 'checkbox', checked: s.hideImages });
   imgs.addEventListener('change', () => commit({ hideImages: imgs.checked }));
@@ -161,7 +178,7 @@ async function render() {
     b.setAttribute('aria-pressed', String(on));
     b.addEventListener('click', async () => {
       if (on) return;
-      await commitProtect({ protect: k, kindModes: k === 'custom' ? s.kindModes : undefined });
+      await commitProtect({ protect: k, kindModes: k === 'custom' ? s.kindModes : undefined, rareNames: k === 'custom' ? s.rareNames : DEFAULT_SETTINGS.rareNames });
       await render();
     });
     protectButtons.append(b);
@@ -196,7 +213,7 @@ async function render() {
     const input = el('input', { type: 'radio', name: 'preset', checked: s.preset === k, disabled: k === 'custom' });
     input.addEventListener('change', async () => {
       if (k === 'custom') return;
-      s = applyPreset(s, k);
+      s = applyPreset(await loadSettings(), k);
       await saveSettings(s);
       await render();
     });
@@ -247,6 +264,10 @@ async function render() {
   });
   const pauseNote = s.pausedUntil > Date.now() ? el('p', { class: 'help' }, `Paused until ${new Date(s.pausedUntil).toLocaleString()}.`) : el('p', { class: 'help' }, 'Use the toolbar popup to pause for a while.');
 
+  const blackout = el('select', { ariaLabel: BLACKOUT_TEXT.name });
+  for (const n of [0, 3, 7, 14] as const) blackout.append(el('option', { value: String(n), selected: n === s.blackoutDays }, BLACKOUT_TEXT.options[n]));
+  blackout.addEventListener('change', () => commit({ blackoutDays: Number(blackout.value) as Settings['blackoutDays'] }));
+
   const sel = el('select', {});
   for (const k of Object.keys(UPDATE_TEXT) as (keyof typeof UPDATE_TEXT)[]) {
     sel.append(el('option', { value: k, selected: k === s.updateEvery }, UPDATE_TEXT[k]));
@@ -270,13 +291,13 @@ async function render() {
   app.replaceChildren(
     el('h1', {}, 'Spoiler Blocker for GTA 6 settings'),
     el('p', { class: 'help' }, 'Changes save automatically and apply to open pages straight away.'),
-    el('section', { class: 'card' }, choiceRow(master, TEXT.masterToggle, s.enabled ? TEXT.masterOn : TEXT.masterOff)),
+    el('section', { class: 'card' }, choiceRow(master, TEXT.masterToggle, blockingStatus(s, Date.now()).text)),
     section(TEXT.protect.name, TEXT.protect.help, protectButtons, el('p', { class: 'help' }, PROTECT_TEXT[s.protect].help), ...kindGrid, ordinaryRow, rareRow),
     section('Style presets', 'A preset sets how careful it is and what hiding looks like. It does not change what to protect above. Your word lists and site lists are kept.', ...presetRow),
     section('What should hiding look like?', 'Choose what you see in place of a spoiler.', ...radioGroup('hide', s.hideMode, HIDE_MODE_TEXT, (v) => commit({ hideMode: v }))),
     section('Replies under a hidden comment', 'On sites where replies sit under the comment they answer, such as Reddit and YouTube.', ...radioGroup('replies', (s.hideReplies ? 'all' : 'own') as 'all' | 'own', REPLIES_TEXT, (v) => commit({ hideReplies: v === 'all' }))),
     section('Pictures and video', 'Spoilers are not always text.', choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), choiceRow(media, TEXT.hideMediaPosts.name, TEXT.hideMediaPosts.help), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v }))),
-    section('Time and progress', 'Blocking can step back by itself.', pauseNote, el('p', {}, el('b', {}, 'Stop hiding on this day')), el('div', { class: 'add' }, endBox, endClear), el('div', { class: 'add' }, ...weeks), check(s.storyFinished, 'I have finished the story', 'Nothing is hidden at all. Untick to turn blocking back on.', (v) => ({ storyFinished: v })), check(s.allowTrailers, 'Let official trailer content through', 'Names and details that were shown in the official trailers are not hidden. Only takes effect for list entries marked as trailer content.', (v) => ({ allowTrailers: v }))),
+    section('Time and progress', 'Blocking can step back by itself.', pauseNote, el('p', {}, el('b', {}, 'Stop hiding on this day')), el('div', { class: 'add' }, endBox, endClear), el('div', { class: 'add' }, ...weeks), el('p', {}, el('b', {}, BLACKOUT_TEXT.name)), el('p', { class: 'help' }, BLACKOUT_TEXT.help), blackout, check(s.storyFinished, 'I have finished the story', 'Nothing is hidden at all. Untick to turn blocking back on.', (v) => ({ storyFinished: v })), check(s.allowTrailers, 'Let official trailer content through', 'Names and details that were shown in the official trailers are not hidden. Only takes effect for list entries marked as trailer content.', (v) => ({ allowTrailers: v }))),
     section('Toolbar', 'What the extension icon shows.', check(s.showBadge, 'Show the number of hidden items on the icon', 'A small number over the icon counts what was hidden on the current tab.', (v) => ({ showBadge: v }))),
     wordList(TEXT.customWords, s.customWords, (v) => v.trim(), (next) => commit({ customWords: next }).then(render)),
     section(TEXT.spoilerAccounts.name, TEXT.spoilerAccounts.help, check(s.spoilerAccounts, 'Hide the built-in spoiler accounts', `Now: ${SPOILER_ACCOUNTS.map((a) => a.name).join(', ')}.`, (v) => ({ spoilerAccounts: v }))),
@@ -293,6 +314,7 @@ async function render() {
       wordList(TEXT.allowWords, s.allowWords, (v) => v.trim(), (next) => commit({ allowWords: next }).then(render)),
       wordList(TEXT.hintWords, s.hintWords, (v) => v.trim(), (next) => commit({ hintWords: next }).then(render)),
     ),
+    section(TEXT.resetName, TEXT.resetHelp, resetBtn),
     section(TEXT.updates.name, TEXT.updates.help, el('div', { class: 'add' }, sel), upBtn, msg, el('p', { class: 'help' }, `List version ${list.v}. ${when} ${TEXT.updates.privacyNote}`)),
     section(TEXT.donate.name, TEXT.donate.help, el('a', { href: DONATE_URL, target: '_blank', rel: 'noreferrer noopener' }, TEXT.donate.link)),
   );

@@ -1,5 +1,6 @@
 import { parseAccount } from './accounts';
 import { DEFAULT_HINTS } from './matcher/hints';
+import { TEXT } from './text';
 import { CATEGORIES, KINDS, KIND_BASE_LEVEL, KIND_CATEGORY, type Category, type Kind, type Strictness } from './types';
 
 /** blur: covered, click to show. collapse: gone, with a small line in its place. remove: gone, no trace. */
@@ -108,6 +109,8 @@ export interface Settings {
   pausedUntil: number;
   /** "YYYY-MM-DD": nothing is hidden on or after this day. "" = none. */
   endDate: string;
+  /** Launch-week blackout: hide every post naming the game for this many days from release (0 = off, the default). */
+  blackoutDays: 0 | 3 | 7 | 14;
   /** Things shown in official trailers are never hidden (needs list entries marked as trailer content). */
   allowTrailers: boolean;
   /** "I have finished the story": nothing is hidden. */
@@ -149,6 +152,7 @@ export const DEFAULT_SETTINGS: Settings = {
   thumbsOnly: false,
   pausedUntil: 0,
   endDate: '',
+  blackoutDays: 0,
   allowTrailers: false,
   storyFinished: false,
   showBadge: true,
@@ -225,6 +229,7 @@ export function normalizeSettings(raw: unknown): Settings {
     thumbsOnly: typeof r.thumbsOnly === 'boolean' ? r.thumbsOnly : d.thumbsOnly,
     pausedUntil: typeof r.pausedUntil === 'number' && Number.isFinite(r.pausedUntil) && r.pausedUntil > 0 ? Math.floor(r.pausedUntil) : 0,
     endDate: typeof r.endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.endDate) ? r.endDate : '',
+    blackoutDays: ([0, 3, 7, 14] as const).find((n) => n === r.blackoutDays) ?? 0,
     allowTrailers: typeof r.allowTrailers === 'boolean' ? r.allowTrailers : d.allowTrailers,
     storyFinished: typeof r.storyFinished === 'boolean' ? r.storyFinished : d.storyFinished,
     showBadge: typeof r.showBadge === 'boolean' ? r.showBadge : d.showBadge,
@@ -288,14 +293,15 @@ function normalizeSite(v: Record<string, unknown>): SiteOverride {
 }
 
 /**
- * Settings that apply at one address: the global values, then the Safe and Strict lists matched against the
- * whole address, then the per-site override matched by host. A frame passes `ownHost` so that per-site
+ * Settings that apply at one address: the global values, then the per-site override matched by host (the most specific
+ * host wins), then the Safe and Strict lists matched against the whole address: a listed place is Strict "whatever you chose
+ * above", a site's own level included. A frame passes `ownHost` so that per-site
  * look-and-feel overrides still follow the frame's own site while the lists follow the tab's page (`url`).
  */
 export function settingsForUrl(s: Settings, url: string, ownHost?: string): Settings {
   const parsed = parseAddress(url);
   const h = (ownHost ?? parsed?.host ?? '').toLowerCase().replace(/^www\./, '');
-  const key = h ? Object.keys(s.sites).find((k) => h === k || h.endsWith('.' + k)) : undefined;
+  const key = h ? Object.keys(s.sites).filter((k) => h === k || h.endsWith('.' + k)).sort((a, b) => b.length - a.length)[0] : undefined;
   const o = key ? s.sites[key] : undefined;
   const verdict = listVerdict(s, url);
   const listOff = verdict === 'safe';
@@ -304,7 +310,7 @@ export function settingsForUrl(s: Settings, url: string, ownHost?: string): Sett
   return {
     ...s,
     enabled: s.enabled && !o?.off && !listOff,
-    strictness: o?.strictness ?? (listStrict ? 'strict' : s.strictness),
+    strictness: listStrict ? 'strict' : (o?.strictness ?? s.strictness),
     hideMode: o?.hideMode ?? s.hideMode,
     blur: o?.blur ?? s.blur,
     parts: { ...s.parts, ...(o?.parts ?? {}) },
@@ -327,6 +333,33 @@ export function listVerdict(s: Pick<Settings, 'allowSites' | 'blockSites'>, url:
 export function addressChange(s: Pick<Settings, 'allowSites' | 'blockSites'>, prev: ListVerdict, url: string): { verdict: ListVerdict; restart: boolean } {
   const verdict = listVerdict(s, url);
   return { verdict, restart: verdict !== prev };
+}
+
+/** The game's own name in its usual spellings: during the launch-week blackout any post naming it is hidden (game name only). */
+export const BLACKOUT_WORDS = ['GTA 6', 'GTA VI', 'GTA Six', 'Grand Theft Auto 6', 'Grand Theft Auto VI', 'Grand Theft Auto Six', 'GTA6Leak', 'GTA6Leaks', 'GTA6Spoiler', 'GTA6Spoilers', 'GTAVILeaks', 'GTAVISpoilers'] as const;
+
+/** Is the launch-week blackout on now? From the release day (local midnight) for `blackoutDays` days; never without a date. */
+export function blackoutOn(s: Pick<Settings, 'blackoutDays'>, release: string | undefined, now: number): boolean {
+  if (!s.blackoutDays || !release || !/^\d{4}-\d{2}-\d{2}$/.test(release)) return false;
+  const start = Date.parse(`${release}T00:00:00`);
+  return now >= start && now < start + s.blackoutDays * 86_400_000;
+}
+
+/** When the blackout next starts or ends, so an open tab can look again then; undefined when it will not change. */
+export function blackoutNextChange(s: Pick<Settings, 'blackoutDays'>, release: string | undefined, now: number): number | undefined {
+  if (!s.blackoutDays || !release || !/^\d{4}-\d{2}-\d{2}$/.test(release)) return undefined;
+  const start = Date.parse(`${release}T00:00:00`);
+  const end = start + s.blackoutDays * 86_400_000;
+  return now < start ? start : now < end ? end : undefined;
+}
+
+/** What the on/off line should say: "on" only when hiding really is happening. */
+export function blockingStatus(s: Settings, now: number): { on: boolean; text: string } {
+  if (!s.enabled) return { on: false, text: TEXT.masterOff };
+  if (s.storyFinished) return { on: false, text: TEXT.masterFinished };
+  if (s.pausedUntil > now) return { on: false, text: TEXT.masterPaused };
+  if (isSuspended(s, now)) return { on: false, text: TEXT.masterEnded };
+  return { on: true, text: TEXT.masterOn };
 }
 
 /** Nothing is hidden: paused, past the end date, or the story is finished. `now` is passed in so tests need no clock. */

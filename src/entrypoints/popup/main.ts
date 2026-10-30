@@ -2,7 +2,7 @@ import '../../ui/style.css';
 import { el } from '../../ui/dom';
 import { DONATE_URL } from '../../donate';
 import { HIDDEN_GROUP_TEXT, TEXT } from '../../text';
-import { isSuspended, listVerdict, loadSettings, normalizeHost, normalizeSettings, patternChoices, patternLabel, saveSettings, urlMatches, type Settings, type SitePattern } from '../../settings';
+import { blockingStatus, isSuspended, listVerdict, loadSettings, normalizeHost, normalizeSettings, patternChoices, patternLabel, saveSettings, urlMatches, type Settings, type SitePattern } from '../../settings';
 import { cleanTally, describeTally, type HiddenTally } from '../../hidden';
 import { activeList, loadMeta } from '../../list/store';
 
@@ -37,11 +37,12 @@ async function render() {
 
   const toggle = el('input', { type: 'checkbox', checked: s.enabled });
   toggle.addEventListener('change', () => update({ enabled: toggle.checked }));
+  const status = blockingStatus(s, Date.now());
   const master = el(
     'label',
     { class: 'row' },
     toggle,
-    el('span', {}, el('b', {}, TEXT.masterToggle), el('span', { class: `status ${s.enabled ? 'on' : 'off'}` }, s.enabled ? TEXT.masterOn : TEXT.masterOff)),
+    el('span', {}, el('b', {}, TEXT.masterToggle), el('span', { class: `status ${status.on ? 'on' : 'off'}` }, status.text)),
   );
 
   // Count of hidden items on this page, asked of the page's own script.
