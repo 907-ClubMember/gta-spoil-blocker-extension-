@@ -3,6 +3,7 @@
  * not spoilers. A weak list term near one of these is treated as being about the game.
  * The user can edit this list in the options page.
  */
+// Not default hints any more, since they say nothing about a game; a person can still add one in the settings.
 export const REACTION_EMOJI: Record<string, string> = {
   '💀': 'emojiskull',
   '😭': 'emojisob',
@@ -14,24 +15,16 @@ export const REACTION_EMOJI: Record<string, string> = {
 };
 
 export const DEFAULT_HINTS: string[] = [
-  // gaming
-  'mission', 'heist', 'cutscene', 'ending', 'story mode', 'playthrough', 'walkthrough', 'boss', 'spoiler', 'chapter',
-  'protagonist', 'Rockstar', 'trailer', 'leak', 'gameplay', 'side quest', 'final mission',
-  // feelings and fates
-  'hate', 'love', 'died', 'dies', 'dead', 'death', 'killed', 'kills', 'murdered', 'betrayed', 'betrays', 'shot', 'cried',
-  'crying', 'saddest', 'favorite', 'worst', 'best character', 'deserved',
-  // swearing and strong reactions
-  'fuck', 'fucking', 'wtf', 'shit', 'holy shit', 'damn', 'bitch', 'bastard', 'asshole', 'hell', 'omg', 'bruh', 'no way',
-  'cannot believe', "can't believe", 'insane', 'crazy', 'wild',
-  // praise and put-downs
-  'awesome', 'amazing', 'incredible', 'goated', 'goat', 'peak', 'fire', 'banger', 'masterpiece', 'legend', 'iconic',
-  'carried', 'clutch', 'W', 'L', 'mid', 'trash', 'overrated', 'underrated',
-  // current slang
-  'rizz', 'aura', 'unc', '6-7', 'skibidi', 'cracked', 'clapped', 'choke', 'cooked', 'cooking', 'glazing', 'glaze', 'based',
-  'cringe', 'no cap', 'cap', 'slaps', 'bussin', 'ate', 'slay', 'goes hard', 'hits different', 'sus', 'lowkey', 'highkey',
-  'fr', 'ong', 'ngl', 'istg', 'bro',
-  // reaction emoji
-  ...Object.keys(REACTION_EMOJI),
+  // the game and its story
+  'mission', 'final mission', 'last mission', 'heist', 'cutscene', 'story mode', 'playthrough', 'walkthrough', 'boss', 'final boss', 'boss fight',
+  'chapter', 'side quest', 'protagonist', 'villain', 'antagonist', 'spoiler', 'spoilers', 'leak', 'leaked', 'trailer', 'gameplay', 'Rockstar',
+  // how it ends
+  'ending', 'endings', 'true ending', 'good ending', 'bad ending', 'secret ending', 'post credits', 'credits scene', 'epilogue', 'finale', 'twist', 'plot twist',
+  // who lives and who dies
+  'dies', 'died', 'dead', 'death', 'dying', 'killed', 'kills', 'murdered', 'survives', 'survived', 'sacrifice', 'funeral', 'rip',
+  // who turns on whom, and what comes out
+  'betrayed', 'betrays', 'betrayal', 'traitor', 'snitch', 'double cross', 'backstab', 'turns out', 'all along', 'the whole time', 'behind it all', 'mastermind',
+  'real identity', 'revealed',
 ];
 
 /** A weak term counts as hinted when a hint word is within this many words of it. */
@@ -51,6 +44,15 @@ export const SPOILER_WORDS = {
   trailers: ['trailer', 'trailers', 'teaser'],
   leaks: ['leak', 'leaks', 'leaked'],
 } as const;
+
+/**
+ * What happens at a place, in plain words. They only count next to the name of a place that matters to the story, so they can be
+ * wider than SPOILER_WORDS: "great shot" alone means nothing. "get" and "finally" are left out: "how do I get to" is a normal question.
+ */
+export const PLACE_EVENT_WORDS = [
+  'shot', 'shoots', 'shootout', 'gunned', 'falls apart', 'fall apart', 'is where', 'was where', 'happens', 'happened', 'ends', 'ended', 'showdown', 'ambush', 'ambushed',
+  'massacre', 'body', 'bodies', 'blows up', 'blown up', 'explodes', 'arrested', 'captured', 'kidnapped', 'rescued', 'goes wrong', 'went wrong', 'last stand', 'confrontation', 'final', 'secret',
+] as const;
 
 /**
  * Very common given names. Two of these in one post ("Michael and Jordan") say nothing about a game,

@@ -12,7 +12,7 @@
 
 **The only network request the extension makes by itself:** downloading the spoiler list, one file, from `raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-`. It happens on the schedule you pick (hourly by default, or manual only) and when you press "Update now". The request carries no cookies, no account, and nothing about what you browse. GitHub can see that your IP address fetched the file, as with any download.
 
-**The tip link** opens GTA Wiki's Ko-fi page in a new tab only when you click it. The extension does not contact Ko-fi on its own and does not send your browsing there.
+**The tip and help links** open GTA Wiki's site, its Ko-fi page, or the extension maker's Ko-fi page in a new tab only when you click one. The extension does not contact these sites on its own and does not send your browsing there.
 
 **No analytics, no tracking, no accounts.** Settings are not synced between devices.
 

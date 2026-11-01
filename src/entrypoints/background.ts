@@ -1,4 +1,4 @@
-import { UPDATE_MINUTES, loadSettings, normalizeSettings, saveSettings } from '../settings';
+import { UPDATE_MINUTES, blockingStatus, timerNextChange, loadSettings, normalizeSettings, saveSettings } from '../settings';
 import { describeResult, updateList } from '../list/store';
 import { FrameCounts } from '../frames';
 import { cleanTally } from '../hidden';
@@ -13,8 +13,11 @@ async function scheduleAlarm() {
   if (minutes) await chrome.alarms.create(ALARM, { periodInMinutes: minutes, delayInMinutes: 1 });
 }
 
+const BADGE_ALARM = 'gsb-badge';
+
 export default defineBackground(() => {
-  chrome.runtime.onInstalled.addListener(() => {
+  chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('/welcome.html') });
     chrome.contextMenus.create({
       id: MENU,
       title: 'Hide this on every page',
@@ -45,13 +48,33 @@ export default defineBackground(() => {
     await saveSettings(normalizeSettings({ ...s, customWords: [...s.customWords, word] }));
   });
 
+  // OFF on the icon for every tab while nothing is being hidden; tabs with a count of their own follow in showBadge.
+  const showOff = async () => {
+    const off = !blockingStatus(await loadSettings(), Date.now()).on;
+    await chrome.action.setBadgeText({ text: off ? 'OFF' : '' });
+    if (off) await chrome.action.setBadgeBackgroundColor({ color: '#6b7280' });
+    // A pause or a set time ends with no settings change: look again then.
+    const s = await loadSettings();
+    const ends = [s.pausedUntil, timerNextChange(s, Date.now()) ?? 0].filter((t) => t > Date.now());
+    if (ends.length) await chrome.alarms.create(BADGE_ALARM, { when: Math.min(...ends) + 1000 });
+  };
+  void showOff();
+  chrome.alarms.onAlarm.addListener((a) => {
+    if (a.name === BADGE_ALARM) void showOff();
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.settings) void showOff();
+  });
+
   // The toolbar count: how many items are hidden in a tab. Off when the user does not want a number there.
   const showBadge = async (tabId: number) => {
     try {
       const s = await loadSettings();
       const n = frameCounts.total(tabId);
-      await chrome.action.setBadgeText({ tabId, text: s.showBadge && n > 0 ? String(n > 99 ? '99+' : n) : '' });
-      if (s.showBadge && n > 0) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#d97706' });
+      // OFF always shows, whatever the count setting: a forgotten switch can spoil someone.
+      const off = !blockingStatus(s, Date.now()).on;
+      await chrome.action.setBadgeText({ tabId, text: off ? 'OFF' : s.showBadge && n > 0 ? String(n > 99 ? '99+' : n) : '' });
+      if (off || (s.showBadge && n > 0)) await chrome.action.setBadgeBackgroundColor({ tabId, color: off ? '#6b7280' : '#c2410c' });
     } catch {
       /* the tab has gone */
     }

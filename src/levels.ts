@@ -33,6 +33,12 @@ export function shapeTerms(terms: Term[], s: ShapeSettings): Term[] {
       out.push({ ...t, s: rare === 'off' ? 'context' : rare === 'always' ? 'strong' : 'weak' });
       continue;
     }
+    // A story place left off by a preset: its name may show, but what happens there may not. As a marker, it hides only beside a
+    // spoiler word ("everyone dies at <place>"). Not for an everyday-word name, nor when someone set the row to Show themselves.
+    if (kind === 'storyplace' && !t.o && s.kindModes[kind] === 'off' && presetRow[kind] === 'off' && level < threshold) {
+      out.push({ ...t, s: 'context' });
+      continue;
+    }
     let mode = s.kindModes[kind];
     if (mode === 'off' && (s.protect !== 'custom' || mode === presetRow[kind]) && level >= threshold) mode = 'always';
     if (mode === 'off') {

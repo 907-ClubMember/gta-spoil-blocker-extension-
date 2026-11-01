@@ -42,7 +42,7 @@ spoiler itself**: reports are checked by a tool, and the maintainer is playing t
 
 The list is built from the work of the volunteer editors of [GTA Wiki](https://gta.wiki), the GTA Wiki on Fandom and Wikipedia
 (text under CC BY-SA). Only names are kept, never their writing. If this saved your playthrough, consider
-[tipping GTA Wiki](https://ko-fi.com/gtawiki).
+[tipping GTA Wiki](https://ko-fi.com/gtawiki). You can also [tip the extension's maker](https://ko-fi.com/ai_slop_fund).
 
 Not affiliated with, endorsed by or connected to Rockstar Games or Take-Two Interactive. Grand Theft Auto and GTA are trademarks
 of Take-Two Interactive.

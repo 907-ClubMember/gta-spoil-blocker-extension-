@@ -39,18 +39,18 @@ const BLUR_CSS: Record<BlurStrength, string> = {
   light: 'filter:blur(6px)',
   medium: 'filter:blur(14px)',
   heavy: 'filter:blur(32px)',
-  solid: 'filter:brightness(0)', // a plain dark box: nothing of the content shows through
+  solid: 'filter:brightness(0)!important;box-shadow:inset 0 0 0 100000px #000', // a plain dark box: black text on a clear background would stay readable without its own fill. A shadow, so that peeking can lift it and leave the site's own background alone
 };
 
 /** The page's stylesheet for covers. Several equal attributes in the peek rule outrank every cover rule above it. */
 export const cssFor = (blur: BlurStrength = 'medium'): string => `
-${COVERS('blur')}{${BLUR_CSS[blur]}!important;user-select:none!important;pointer-events:none!important}
+${COVERS('blur')}{${BLUR_CSS[blur]}!important;clip-path:inset(0)!important;user-select:none!important;pointer-events:none!important}
 ${COVERS('collapse')},${COVERS('remove')}{display:none!important}
-.gsb-bar{all:initial;display:block;flex:none;align-self:flex-start;min-width:max-content;position:relative;z-index:1;box-sizing:border-box;margin:12px 0 2px;padding:6px 10px;font:600 13px/1.3 system-ui,sans-serif;
- color:#1f2937;background:#fde68a;border:1px solid #d97706;border-radius:6px;cursor:pointer;text-align:left;user-select:none}
-.gsb-bar:hover{background:#fcd34d}
+.gsb-bar{all:initial;display:block;flex:none;align-self:flex-start;min-width:max-content;position:relative;z-index:1;box-sizing:border-box;margin:6px 0 2px;padding:3px 10px;font:500 12px/1.4 system-ui,sans-serif;
+ color:#fff;background:#23262a;border:0;border-radius:999px;cursor:pointer;text-align:left;user-select:none}
+.gsb-bar:hover{background:#3a3f45}
 .gsb-bar[data-gsb-line]{margin:2px 0;padding:2px 8px;font-size:11px;font-weight:500;opacity:.8}
-[data-gsb-peek][data-gsb-peek][data-gsb-peek][data-gsb-peek],[data-gsb-peek][data-gsb-peek][data-gsb-peek][data-gsb-peek] *{filter:none!important;pointer-events:auto!important}
+[data-gsb-peek][data-gsb-peek][data-gsb-peek][data-gsb-peek],[data-gsb-peek][data-gsb-peek][data-gsb-peek][data-gsb-peek] *{filter:none!important;clip-path:none!important;pointer-events:auto!important${blur === 'solid' ? ';box-shadow:none!important' : ''}}
 `;
 export const CSS = cssFor('medium');
 

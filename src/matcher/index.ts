@@ -1,5 +1,5 @@
 import { KIND_GROUP, kindOf, type Category, type KindGroup, type Strength, type Strictness, type Term } from '../types';
-import { COMMON_FIRST_NAMES, DEFAULT_HINTS, HINT_REACH, REACTION_EMOJI, SPOILER_WORDS } from './hints';
+import { COMMON_FIRST_NAMES, DEFAULT_HINTS, HINT_REACH, REACTION_EMOJI, SPOILER_WORDS, PLACE_EVENT_WORDS } from './hints';
 
 const EMOJI_RE = new RegExp(Object.keys(REACTION_EMOJI).join('|'), 'gu');
 
@@ -59,6 +59,8 @@ interface Compiled {
   o?: true;
   /** A rare made-up name (Term.r): a marker as well as a name. */
   r?: true;
+  /** A story place: words about what happens there count beside it. */
+  place?: true;
 }
 
 // Letters from other alphabets that are drawn the same as Latin ones. Swapping one in is a common way
@@ -97,22 +99,31 @@ export class Matcher {
   private hints = new Map<string, string[][]>();
   /** first token -> spoiler words starting with it, each with the category switch that controls it */
   private spoilers = new Map<string, { tokens: string[]; c: Category }[]>();
+  private placeEvents = new Map<string, string[][]>();
+  private storySwitchOn: boolean;
   /** Every word that appears in any list entry: mangled words are only ever repaired into one of these. */
   private vocab = new Set<string>();
   private strictness: Strictness;
 
   constructor(opts: MatcherOptions) {
     this.strictness = opts.strictness;
+    this.storySwitchOn = opts.categories.has('story');
+    for (const w of PLACE_EVENT_WORDS) {
+      const tokens = normalize(w).split(' ');
+      const bucket = this.placeEvents.get(tokens[0]!);
+      if (bucket) bucket.push(tokens);
+      else this.placeEvents.set(tokens[0]!, [tokens]);
+    }
     const allow = new Set(opts.allowWords.map(normalize).filter(Boolean));
 
-    const add = (raw: string, c: Category | 'custom', s: Strength, g: KindGroup | 'custom', o?: true, r?: true) => {
+    const add = (raw: string, c: Category | 'custom', s: Strength, g: KindGroup | 'custom', o?: true, r?: true, place?: true) => {
       const norm = normalize(raw);
       if (!norm || allow.has(norm)) return;
       const tokens = norm.split(' ');
       const put = (toks: string[]) => {
         for (const tok of toks) this.vocab.add(tok);
         const k = toks[0]!;
-        const entry: Compiled = { tokens: toks, c, s, g, ...(o ? { o } : {}), ...(r ? { r } : {}) };
+        const entry: Compiled = { tokens: toks, c, s, g, ...(o ? { o } : {}), ...(r ? { r } : {}), ...(place ? { place } : {}) };
         const bucket = this.index.get(k);
         if (bucket) bucket.push(entry);
         else this.index.set(k, [entry]);
@@ -125,7 +136,7 @@ export class Matcher {
 
     // A marker only says a text is about the game and never hides on its own: it stays even when its group is set to never
     // hide, or switching off one group would stop every other group's names from hiding on pages about the game.
-    for (const t of opts.terms) if (opts.categories.has(t.c) || t.s === 'context') add(t.t, t.c, t.s, KIND_GROUP[kindOf(t)], t.o, t.r);
+    for (const t of opts.terms) if (opts.categories.has(t.c) || t.s === 'context') add(t.t, t.c, t.s, KIND_GROUP[kindOf(t)], t.o, t.r, kindOf(t) === 'storyplace' && !t.o ? true : undefined);
     for (const w of opts.customWords) add(w, 'custom', 'strong', 'custom');
 
     const hint = (tokens: string[]) => {
@@ -276,6 +287,7 @@ export class Matcher {
     const spoil = new Set<Category>();
     let context = false;
     let mentions = 0;
+    let atStoryPlace = false;
     // Reaction emoji count as hint words but are not part of anyone's name: "First 💀 Last" is still "First Last".
     const plain: string[] = [];
     const at: number[] = [];
@@ -295,6 +307,7 @@ export class Matcher {
       if (!bucket) continue;
       for (const e of bucket) {
         if (!hasSequence(plain, i, e.tokens)) continue;
+        if (e.place) atStoryPlace = true;
         if (e.s === 'strong') {
           strong.add(e.c);
           strongGroups.add(e.g);
@@ -320,6 +333,11 @@ export class Matcher {
           }
         }
       }
+    }
+    // What happens at a story place: these words count only beside its name, so "great shot" alone is left alone.
+    if (atStoryPlace && this.storySwitchOn && plain.some((_, i) => (this.placeEvents.get(plain[i]!) ?? []).some((t) => hasSequence(plain, i, t)))) {
+      spoil.add('story');
+      context = true;
     }
     // One rare name marks the post but cannot vouch for itself; two different ones vouch for each other.
     const selfMarked = !context && rares.size === 1 ? { weak: otherWeak, groups: otherGroups } : undefined;
@@ -367,5 +385,5 @@ export function labelFor(result: MatchResult): string {
   const [only, ...rest] = result.categories;
   if (rest.length || (only && result.custom)) return 'Hidden: spoilers';
   if (only) return `Hidden: ${LABEL_WORD[only] ?? only} spoiler`;
-  return result.custom ? 'Hidden: blocked keyword' : 'Hidden: spoiler';
+  return result.custom ? 'Hidden: your word' : 'Hidden: spoiler';
 }

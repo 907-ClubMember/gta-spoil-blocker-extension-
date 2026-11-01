@@ -1,10 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'wxt';
+
+const words = JSON.parse(readFileSync('extension-text.json', 'utf8')) as { manifest: { name: string; description: string } };
 
 export default defineConfig({
   srcDir: 'src',
   manifest: {
-    name: 'Spoiler Blocker for GTA 6',
-    description: 'Hides GTA 6 spoilers across the web. Runs locally; the spoiler list updates itself.',
+    name: words.manifest.name,
+    description: words.manifest.description,
     permissions: ['storage', 'alarms', 'contextMenus', 'activeTab'],
     host_permissions: ['https://raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/*'],
   },

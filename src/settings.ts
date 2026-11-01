@@ -109,8 +109,16 @@ export interface Settings {
   pausedUntil: number;
   /** "YYYY-MM-DD": nothing is hidden on or after this day. "" = none. */
   endDate: string;
+  /** When hiding starts, same forms as endDate. Empty: no start limit. */
+  startDate: string;
+  /** The start and end times are switched off and kept for later. */
+  timerOff: boolean;
   /** Launch-week blackout: hide every post naming the game for this many days from release (0 = off, the default). */
   blackoutDays: 0 | 3 | 7 | 14;
+  /** When the blackout starts (YYYY-MM-DDTHH:MM). Empty: the release day from the list. */
+  blackoutFrom: string;
+  /** The time zone blackoutFrom is in. Empty: the browser's own. */
+  blackoutZone: string;
   /** Things shown in official trailers are never hidden (needs list entries marked as trailer content). */
   allowTrailers: boolean;
   /** "I have finished the story": nothing is hidden. */
@@ -147,12 +155,16 @@ export const DEFAULT_SETTINGS: Settings = {
   rareNames: 'mention',
   parts: Object.fromEntries(PAGE_PARTS.map((p) => [p, true])) as Record<PagePart, boolean>,
   sites: {},
-  pauseVideo: false,
-  muteAudio: false,
+  pauseVideo: true,
+  muteAudio: true,
   thumbsOnly: false,
   pausedUntil: 0,
   endDate: '',
+  startDate: '',
+  timerOff: false,
   blackoutDays: 0,
+  blackoutFrom: '',
+  blackoutZone: '',
   allowTrailers: false,
   storyFinished: false,
   showBadge: true,
@@ -228,8 +240,12 @@ export function normalizeSettings(raw: unknown): Settings {
     muteAudio: typeof r.muteAudio === 'boolean' ? r.muteAudio : d.muteAudio,
     thumbsOnly: typeof r.thumbsOnly === 'boolean' ? r.thumbsOnly : d.thumbsOnly,
     pausedUntil: typeof r.pausedUntil === 'number' && Number.isFinite(r.pausedUntil) && r.pausedUntil > 0 ? Math.floor(r.pausedUntil) : 0,
-    endDate: typeof r.endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.endDate) ? r.endDate : '',
+    endDate: isTimeText(r.endDate) ? r.endDate : '',
+    startDate: isTimeText(r.startDate) ? r.startDate : '',
+    timerOff: r.timerOff === true,
     blackoutDays: ([0, 3, 7, 14] as const).find((n) => n === r.blackoutDays) ?? 0,
+    blackoutFrom: isTimeText(r.blackoutFrom) && r.blackoutFrom.includes('T') ? r.blackoutFrom : '',
+    blackoutZone: isZone(r.blackoutZone) ? r.blackoutZone : '',
     allowTrailers: typeof r.allowTrailers === 'boolean' ? r.allowTrailers : d.allowTrailers,
     storyFinished: typeof r.storyFinished === 'boolean' ? r.storyFinished : d.storyFinished,
     showBadge: typeof r.showBadge === 'boolean' ? r.showBadge : d.showBadge,
@@ -338,19 +354,62 @@ export function addressChange(s: Pick<Settings, 'allowSites' | 'blockSites'>, pr
 /** The game's own name in its usual spellings: during the launch-week blackout any post naming it is hidden (game name only). */
 export const BLACKOUT_WORDS = ['GTA 6', 'GTA VI', 'GTA Six', 'Grand Theft Auto 6', 'Grand Theft Auto VI', 'Grand Theft Auto Six', 'GTA6Leak', 'GTA6Leaks', 'GTA6Spoiler', 'GTA6Spoilers', 'GTAVILeaks', 'GTAVISpoilers'] as const;
 
-/** Is the launch-week blackout on now? From the release day (local midnight) for `blackoutDays` days; never without a date. */
-export function blackoutOn(s: Pick<Settings, 'blackoutDays'>, release: string | undefined, now: number): boolean {
-  if (!s.blackoutDays || !release || !/^\d{4}-\d{2}-\d{2}$/.test(release)) return false;
-  const start = Date.parse(`${release}T00:00:00`);
+/** A wall-clock time in a named time zone, as a moment. Empty or unknown zone: the browser's own. */
+export function zonedTime(text: string, zone: string): number {
+  if (!zone) return timeOf(text);
+  const wall = Date.parse(`${text}Z`);
+  const offsetAt = (t: number) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(t).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year!, +p.month! - 1, +p.day!, +p.hour!, +p.minute!, +p.second!) - t;
+  };
+  try {
+    // Twice, as the offset at the first guess can differ across a clock change.
+    return wall - offsetAt(wall - offsetAt(wall));
+  } catch {
+    return timeOf(text);
+  }
+}
+const isZone = (z: unknown): z is string => {
+  if (typeof z !== 'string' || !z) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: z });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+type BlackoutSettings = Pick<Settings, 'blackoutDays'> & Partial<Pick<Settings, 'blackoutFrom' | 'blackoutZone'>>;
+/** The person's own start time if set, otherwise the release day (local midnight); undefined when neither is known. */
+function blackoutStart(s: BlackoutSettings, release: string | undefined): number | undefined {
+  if (s.blackoutFrom) return zonedTime(s.blackoutFrom, s.blackoutZone ?? '');
+  return release && /^\d{4}-\d{2}-\d{2}$/.test(release) ? Date.parse(`${release}T00:00:00`) : undefined;
+}
+
+/** Is the blackout on now? For `blackoutDays` days from its start; never without a start. */
+export function blackoutOn(s: BlackoutSettings, release: string | undefined, now: number): boolean {
+  const start = blackoutStart(s, release);
+  if (!s.blackoutDays || start === undefined) return false;
   return now >= start && now < start + s.blackoutDays * 86_400_000;
 }
 
 /** When the blackout next starts or ends, so an open tab can look again then; undefined when it will not change. */
-export function blackoutNextChange(s: Pick<Settings, 'blackoutDays'>, release: string | undefined, now: number): number | undefined {
-  if (!s.blackoutDays || !release || !/^\d{4}-\d{2}-\d{2}$/.test(release)) return undefined;
-  const start = Date.parse(`${release}T00:00:00`);
+export function blackoutNextChange(s: BlackoutSettings, release: string | undefined, now: number): number | undefined {
+  const start = blackoutStart(s, release);
+  if (!s.blackoutDays || start === undefined) return undefined;
   const end = start + s.blackoutDays * 86_400_000;
   return now < start ? start : now < end ? end : undefined;
+}
+
+/** A day (YYYY-MM-DD), read as local midnight, or a day and time (YYYY-MM-DDTHH:MM), read as local time. */
+const isTimeText = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(v) && !Number.isNaN(timeOf(v));
+export const timeOf = (v: string): number => Date.parse(v.includes('T') ? v : `${v}T00:00:00`);
+
+/** The next moment the start or end time changes whether anything is hidden; undefined when neither lies ahead. */
+export function timerNextChange(s: Pick<Settings, 'startDate' | 'endDate' | 'timerOff'>, now: number): number | undefined {
+  if (s.timerOff) return undefined;
+  const ahead = [s.startDate, s.endDate].filter(Boolean).map(timeOf).filter((t) => t > now);
+  return ahead.length ? Math.min(...ahead) : undefined;
 }
 
 /** What the on/off line should say: "on" only when hiding really is happening. */
@@ -358,6 +417,7 @@ export function blockingStatus(s: Settings, now: number): { on: boolean; text: s
   if (!s.enabled) return { on: false, text: TEXT.masterOff };
   if (s.storyFinished) return { on: false, text: TEXT.masterFinished };
   if (s.pausedUntil > now) return { on: false, text: TEXT.masterPaused };
+  if (!s.timerOff && s.startDate && now < timeOf(s.startDate)) return { on: false, text: TEXT.masterNotYet };
   if (isSuspended(s, now)) return { on: false, text: TEXT.masterEnded };
   return { on: true, text: TEXT.masterOn };
 }
@@ -366,7 +426,8 @@ export function blockingStatus(s: Settings, now: number): { on: boolean; text: s
 export function isSuspended(s: Settings, now: number): boolean {
   if (s.storyFinished) return true;
   if (s.pausedUntil > now) return true;
-  if (s.endDate && now >= Date.parse(`${s.endDate}T00:00:00`)) return true;
+  if (!s.timerOff && s.endDate && now >= timeOf(s.endDate)) return true;
+  if (!s.timerOff && s.startDate && now < timeOf(s.startDate)) return true;
   return false;
 }
 

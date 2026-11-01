@@ -5,7 +5,7 @@ import { activeList } from '../list/store';
 import { CATEGORIES } from '../types';
 import { shapeTerms } from '../levels';
 import { adapterFor } from '../adapters';
-import { BLACKOUT_WORDS, addressChange, blackoutNextChange, blackoutOn, isSuspended, listVerdict, loadSettings, settingsForUrl, type ListVerdict, type Settings } from '../settings';
+import { BLACKOUT_WORDS, timerNextChange, addressChange, blackoutNextChange, blackoutOn, isSuspended, listVerdict, loadSettings, settingsForUrl, type ListVerdict, type Settings } from '../settings';
 import { isSearchPage, offSelector } from '../adapters/parts';
 
 export default defineContentScript({
@@ -162,7 +162,7 @@ export default defineContentScript({
       const now = Date.now();
       if (isSuspended(s, now)) {
         // Paused, past the end date, or the story is finished: look again when the pause ends.
-        const ends = [s.pausedUntil, s.endDate ? Date.parse(`${s.endDate}T00:00:00`) : 0].filter((t) => t > now);
+        const ends = [s.pausedUntil, timerNextChange(s, now) ?? 0].filter((t) => t > now);
         if (ends.length) wake = window.setTimeout(() => void start(), Math.min(Math.min(...ends) - now + 1000, 2 ** 31 - 1));
         return void report(false);
       }
@@ -186,7 +186,7 @@ export default defineContentScript({
         hintWords: s.hintWords,
       });
       // A tab left open across the blackout's first or last day picks up the change by itself.
-      const turn = blackoutNextChange(s, list.release, Date.now());
+      const turn = [blackoutNextChange(s, list.release, Date.now()), timerNextChange(s, Date.now())].filter((t) => t !== undefined).sort((a, b) => a - b)[0];
       if (turn) wake = window.setTimeout(() => void start(), Math.min(turn - Date.now() + 1000, 2 ** 31 - 1));
       const sc = new Scanner(document, matcher, { hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, revealMode: s.revealMode, keepRevealed: s.rememberReveals ? keptReveals : undefined, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, thumbsOnly: s.thumbsOnly, hideImages: s.hideImages, hideMediaPosts: s.hideMediaPosts, mediaNearGame: s.mediaNearGame, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, chat: site?.chat, threads: site?.threads, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, accounts, ownPage: site?.ownPage });
       scanner = sc;
