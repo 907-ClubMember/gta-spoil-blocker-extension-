@@ -1,60 +1,56 @@
 # Spoiler Blocker for GTA 6
+![logo of the extension](https://raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/refs/heads/main/Artboard%201.PNG.png)
 
-**Browse the internet without getting GTA 6 spoiled.**
+There was a extension a long time ago for blocking spoilers for StarWars episode 7 when it came out. (Before we knew it as bad). I was wondering how to replicate that without having to read gta.wiki and block them myself. Which would require someone to know or spoil the plot for themselves.
 
-A free Chrome extension that hides GTA 6 spoilers on the sites you already use: YouTube (including live chat), Reddit, X,
-Bluesky, Threads, Facebook, Instagram, Twitch and Kick chat, Discord, Steam, Google, Bing and ordinary websites. Who dies, the twists, the ending, the last missions: covered up before you see them.
-Everything else on the page stays the way it was.
+This extension was created to try and solve that, I have given claude a set of rules then flagged by hands things from GTA 4+DLC + GTA 5 + RDR2, this was iterated several times over with my spot checking and giving corrections on how to flag what text in gta.wiki. This hopefully will then correctly label content from GTA.wiki as it is added.
+
+## AI notice
+
+If is wasn't obvious this heavily uses AI. The only things not AI is the artwork made by my wonderful girlfriend and this README as I hate reading AI slop someone half-assed. This was made from the claude Pro sub vibecoded on my laptop.
 
 ## How it works
 
-1. **It knows what to look for.** A list of GTA 6 story names (characters, missions, places, big moments) is updated every hour
-   while the game's fan wikis fill in after launch. You never see the list.
-2. **It checks each page as it loads**, on your own computer, before the page is even shown.
-3. **It covers just the spoiler**: that one post, comment, video or chat message gets blurred with a small label like
-   "Hidden: story spoiler". Click it if you want to peek.
+1. Scrapes the gta.wiki for GTA 6 content then labels the content based off it's rules, this is then stored encoded in "spoilers.json" on this repo
+2. The extension then gets updates from "spoilers.json" as new content is labeled
+3. Then using the settings in your instance of the extension content is flagged based on it's label 
 
-It also hides everything posted by known spoiler accounts, and it won't hide someone just asking for "no spoilers please".
 
-## You're in control
+## Supported sites
+Youtube + live chat, old/new Reddit, X, Bluesky, Facebook, Insta, Twitch, Kick, Discord (web version), Steam, Google, Bing, and most normal websites with generic support
 
-- **How much to hide:** only the big moments, the main story (the default), or everything.
-- **How it looks:** blur, collapse, or remove completely.
-- **Where:** pause it on a site, mark sites as safe, or make a site extra strict.
-- **When to stop:** set a date, or tell it you've finished the story.
-- **Your own words:** add anything else you want hidden.
+## Features
 
-## Private by design
+- **How much to hide:** customizable level of hiding based off pre-sets can be customized.  
+- **Where:** Can whitelist / blacklist sites, hide media / audio on sites as it plays
+- **Your own words:** add custom keywords to blacklist
+- **Known spoilers** currently hardcoded to block "Shirrako" other accounts can be added to your instance of the extension 
 
-Pages are checked only inside your browser. Nothing you read is sent anywhere: no tracking, no ads, no account, no analytics.
-The only thing it downloads is the spoiler list itself. Full details: [privacy policy](https://gist.github.com/907-ClubMember/d4d83238a67f3b81a3cd80b687c30c24).
+## Privacy
+
+Pages are checked only inside your browser. I get no information from you installing this extension and no changes occur to your browser besides the blocking. If someone does try to sell me on injecting code to sell residential proxies i'll put them on blast like the GOAT [Ajay](https://sponsor.ajay.app/emails) Full details: [privacy policy](https://gist.github.com/907-ClubMember/d4d83238a67f3b81a3cd80b687c30c24).
 
 ## Install
-
-Coming soon on the Chrome Web Store.
-
-## Something got through, or something was hidden by mistake?
-
-Use **Issues > New issue > "Report a spoiler or a wrongly hidden post"** and give a link to the page. **Please don't type the
-spoiler itself**: reports are checked by a tool, and the maintainer is playing the game too.
+# TODO
+Put chrome webstore link here 
 
 ## Thanks
 
-The list is built from the work of the volunteer editors of [GTA Wiki](https://gta.wiki), the GTA Wiki on Fandom and Wikipedia
-(text under CC BY-SA). Only names are kept, never their writing. If this saved your playthrough, consider
-[tipping GTA Wiki](https://ko-fi.com/gtawiki). You can also [tip the extension's maker](https://ko-fi.com/ai_slop_fund).
+The list is built from the work of the volunteer editors of [GTA Wiki](https://gta.wiki), 
+(text under CC BY-SA). If this saved your playthrough, consider
+[tipping GTA Wiki](https://ko-fi.com/gtawiki) and [helping with the wiki](https://gta.wiki/w/GTA_Wiki:How_to_Help). You can also tip [me](https://ko-fi.com/ai_slop_fund) if you wanna help me make more projects or to show your thanks.
 
-Not affiliated with, endorsed by or connected to Rockstar Games or Take-Two Interactive. Grand Theft Auto and GTA are trademarks
+Not affiliated with, endorsed by or connected to Rockstar Games, Take-Two Interactive, gta.wiki. Grand Theft Auto and GTA are trademarks
 of Take-Two Interactive.
 
 ---
 
-### Check it yourself
+### Open source
 
-This repository is here so anyone can check what the extension does on their computer.
+All code here is public so anyone can look / tweak it 
 
-- **What it downloads:** one file, the spoiler list, from
-  `raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/main/lists/dist/spoilers.json`. It holds only names, never code. They are
+- **what the extension downloads:** one file, the spoiler list, from
+  `raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/main/lists/dist/spoilers.json`. It holds text related to spoilers. They are
   base64-encoded so that opening the file doesn't spoil you; `src/list/index.ts` shows how it is read. Nothing else is fetched or sent; the address is in
   `src/list/store.ts`.
 - **Permissions** (in `wxt.config.ts`): `storage` (your settings and the list), `alarms` (the update timer), `contextMenus`
@@ -63,5 +59,3 @@ This repository is here so anyone can check what the extension does on their com
 - **Same code as the store:** each store version has a tag here (for example `v0.1.0`). Build that tag and compare it with
   the store version.
 
-To build it: `npm ci`, then `npm run build` (output in `.output/`). Pull requests with code are not accepted. To report a safety problem privately, see [SECURITY.md](SECURITY.md); to report a missed or wrongly hidden spoiler,
-use the report form above and give a link only.
