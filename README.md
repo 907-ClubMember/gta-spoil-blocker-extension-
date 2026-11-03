@@ -1,19 +1,19 @@
 # Spoiler Blocker for GTA 6
 ![logo of the extension](https://raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/refs/heads/main/Artboard%201.PNG.png)
 
-There was a extension a long time ago for blocking spoilers for StarWars episode 7 when it came out. (Before we knew it as bad). I was wondering how to replicate that without having to read gta.wiki and block them myself. Which would require someone to know or spoil the plot for themselves.
+There was an extension a long time ago for blocking spoilers for StarWars episode 7 when it came out. (Before we knew it as bad). I was wondering how to replicate that without having to read gta.wiki and block them myself. Which would require someone to know or spoil the plot for themselves.
 
-This extension was created to try and solve that, I have given claude a set of rules then flagged by hands things from GTA 4+DLC + GTA 5 + RDR2, this was iterated several times over with my spot checking and giving corrections on how to flag what text in gta.wiki. This hopefully will then correctly label content from GTA.wiki as it is added.
+This extension was created to try and solve that, I have given claude a set of rules then flagged by hand things from GTA 4+DLC + GTA 5 + RDR2, this was iterated several times over with my spot checking and giving corrections on how to flag what text in gta.wiki. This hopefully will then correctly label content from GTA.wiki as it is added.
 
 ## AI notice
 
-If is wasn't obvious this heavily uses AI. The only things not AI is the artwork made by my wonderful girlfriend and this README as I hate reading AI slop someone half-assed. This was made from the claude Pro sub vibecoded on my laptop.
+If it wasn't obvious this heavily uses AI. The only things not AI is the artwork made by my wonderful girlfriend and this README as I hate reading AI slop someone half-assed. This was made from the claude Pro sub vibecoded on my laptop.
 
 ## How it works
 
-1. Scrapes the gta.wiki for GTA 6 content then labels the content based off it's rules, this is then stored encoded in "spoilers.json" on this repo
+1. Scrapes the gta.wiki for GTA 6 content then labels the content based off its rules, this is then stored encoded in "spoilers.json" on this repo
 2. The extension then gets updates from "spoilers.json" as new content is labeled
-3. Then using the settings in your instance of the extension content is flagged based on it's label 
+3. Then using the settings in your instance of the extension content is flagged based on its label 
 
 
 ## Supported sites
@@ -28,7 +28,7 @@ Youtube + live chat, old/new Reddit, X, Bluesky, Facebook, Insta, Twitch, Kick, 
 
 ## Privacy
 
-Pages are checked only inside your browser. I get no information from you installing this extension and no changes occur to your browser besides the blocking. If someone does try to sell me on injecting code to sell residential proxies i'll put them on blast like the GOAT [Ajay](https://sponsor.ajay.app/emails) Full details: [privacy policy](https://gist.github.com/907-ClubMember/d4d83238a67f3b81a3cd80b687c30c24).
+Pages are checked only inside your browser. I get no information from you installing this extension and no changes occur to your browser besides the blocking. If someone does try to sell me on injecting code to sell residential proxies I'll put them on blast like the GOAT [Ajay](https://sponsor.ajay.app/emails) Full details: [privacy policy](https://gist.github.com/907-ClubMember/d4d83238a67f3b81a3cd80b687c30c24).
 
 ## Install
 # TODO

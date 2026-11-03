@@ -34,7 +34,7 @@ async function render() {
   const open = el('button', {}, TEXT.welcome.settings);
   open.addEventListener('click', () => chrome.runtime.openOptionsPage());
   app.replaceChildren(
-    el('img', { src: chrome.runtime.getURL('/icon/48.png'), alt: '', width: 48, height: 48 }),
+    el('img', { src: chrome.runtime.getURL('/icon/48.PNG'), alt: '', width: 48, height: 48 }),
     el('h1', {}, TEXT.welcome.title),
     el('p', {}, TEXT.welcome.intro),
     el('h2', {}, TEXT.welcome.pick),

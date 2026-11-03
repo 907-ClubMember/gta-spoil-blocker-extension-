@@ -53,7 +53,7 @@ async function render() {
   const toggle = el('input', { type: 'checkbox', checked: s.enabled, class: 'switch', ariaLabel: TEXT.masterToggle });
   toggle.setAttribute('role', 'switch');
   toggle.addEventListener('change', () => update({ enabled: toggle.checked }));
-  const head = el('div', { class: 'top' }, el('img', { src: chrome.runtime.getURL('/icon/32.png'), alt: '', width: 24, height: 24 }), el('h1', {}, TEXT.popupTitle), toggle);
+  const head = el('div', { class: 'top' }, el('img', { src: chrome.runtime.getURL('/icon/32.PNG'), alt: '', width: 24, height: 24 }), el('h1', {}, TEXT.popupTitle), toggle);
   const statusLine = el('p', { class: `status ${on ? 'on' : 'off'}`, role: 'status' }, status.on && offHere ? (safeEntries.length && safeEntries.every((p) => p.kind === 'page') ? TEXT.masterOffPage : TEXT.masterOffHere) : status.text);
 
   const body: Node[] = [head, statusLine];

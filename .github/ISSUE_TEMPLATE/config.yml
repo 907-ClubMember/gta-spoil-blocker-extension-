@@ -1,4 +1,5 @@
-# Reports only through the form, which the spoiler scan checks. Safety problems go to private reporting (SECURITY.md).
+# No public report form: a link-only report can't show a troll from a real one without someone reading GTA 6 content.
+# Safety problems go to private reporting (SECURITY.md).
 blank_issues_enabled: false
 contact_links:
   - name: Report a safety problem privately

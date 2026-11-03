@@ -18,7 +18,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           if gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' | grep -qx 'lists/dist/spoilers.json'; then
-            gh pr comment "$PR" --repo "$REPO" --body "This pull request changes lists/dist/spoilers.json, which is generated automatically and never edited by hand. To report a missed or wrongly hidden name, open an issue with the report form and give a link only (see the README)."
+            gh pr comment "$PR" --repo "$REPO" --body "This pull request changes lists/dist/spoilers.json, which is generated automatically and never edited by hand."
             echo "the generated list was changed: refused"
             exit 1
           fi
