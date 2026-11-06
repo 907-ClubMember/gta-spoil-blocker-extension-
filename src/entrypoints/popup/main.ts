@@ -112,7 +112,10 @@ async function render() {
       void ask();
       countTimer = window.setInterval(ask, 1000);
     }
-    body.push(count, kinds, reveal);
+    // The page is read with the general rules because the site's layout seems to have changed (src/adapters/stale.ts).
+    const layout = el('p', { class: 'help', hidden: true }, TEXT.layoutChanged);
+    if (tab.id != null) void chrome.tabs.sendMessage(tab.id, { type: 'askGeneric' }, { frameId: 0 }).then((r: { generic?: boolean } | undefined) => { layout.hidden = !r?.generic; }).catch(() => {});
+    body.push(count, kinds, reveal, layout);
   }
 
   // How much to hide, without opening a new tab. Custom only shows for someone who already chose it.

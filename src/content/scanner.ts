@@ -31,9 +31,10 @@ const HIDDEN = '[data-gsb], [data-gsb-revealed], .gsb-bar';
  * replies: the wrappers on that way carry data-gsb-in=<mode> and cover their other children in turn,
  * and a reply or reply area carries data-gsb-in="keep". Anything unmarked stays covered, so content
  * that arrives late inside the comment is hidden without any script having to notice it.
+ * data-gsb-hold=<mode> keeps an old cover on while a restart rescans with a new list or settings (content.ts holdCovers).
  */
 export const COVERS = (mode: HideMode): string =>
-  `[data-gsb="${mode}"]:not([data-gsb-own]),[data-gsb="${mode}"][data-gsb-own]>:not([data-gsb-in],.gsb-bar),[data-gsb-in="${mode}"]>:not([data-gsb-in],.gsb-bar),[data-gsb-under="${mode}"]`;
+  `[data-gsb="${mode}"]:not([data-gsb-own]),[data-gsb="${mode}"][data-gsb-own]>:not([data-gsb-in],.gsb-bar),[data-gsb-in="${mode}"]>:not([data-gsb-in],.gsb-bar),[data-gsb-under="${mode}"],[data-gsb-hold="${mode}"]`;
 
 const BLUR_CSS: Record<BlurStrength, string> = {
   light: 'filter:blur(6px)',
@@ -54,7 +55,50 @@ ${COVERS('collapse')},${COVERS('remove')}{display:none!important}
 `;
 export const CSS = cssFor('medium');
 
+/**
+ * Screen readers skip exactly what is blurred (the cover selector itself), so a hidden spoiler is never read out; collapsed and
+ * removed covers are off the page already. Only marks it set itself are taken back (data-gsb-aria), never the page's own.
+ */
+export function syncReaders(doc: Document): void {
+  const blurred = COVERS('blur');
+  // Inert as well, so links and buttons in a blurred post cannot be reached with the keyboard; lifted while peeking.
+  const covered = (el: Element) => el.matches(blurred) && !el.closest('[data-gsb-peek]');
+  const marks = '[data-gsb="blur"], [data-gsb-in="blur"], [data-gsb-under="blur"], [data-gsb-hold="blur"]';
+  for (const r of [doc, ...shadowRoots()]) {
+    // One pass over the page. Whatever the cover selector matches carries one of these marks itself or is a child of one:
+    // a quick attribute search and a check of those few, instead of running the long selector over the whole page.
+    r.querySelectorAll(`[data-gsb-aria], ${marks}`).forEach((m) => {
+      if (m.hasAttribute('data-gsb-aria') && !covered(m)) {
+        m.removeAttribute('aria-hidden');
+        m.removeAttribute('inert');
+        m.removeAttribute('data-gsb-aria');
+      }
+      if (!m.matches(marks)) return;
+      for (const el of [m, ...m.children]) {
+        if (el.hasAttribute('aria-hidden') || el.hasAttribute('inert') || !covered(el)) continue;
+        el.setAttribute('aria-hidden', 'true');
+        el.setAttribute('inert', '');
+        el.setAttribute('data-gsb-aria', '');
+      }
+    });
+  }
+}
+
+/**
+ * Open shadow roots found on the page (2026-11-04: Reddit's chat draws its messages inside them). The page's own stylesheet does not
+ * reach inside one, so a root that gets a cover is given its own copy of the cover style.
+ */
+const ROOTS = new Set<ShadowRoot>();
+const ROOT_STYLES = new Map<ShadowRoot, HTMLStyleElement>();
+/** The open shadow roots seen so far that are still on the page. */
+export function shadowRoots(): ShadowRoot[] {
+  for (const r of ROOTS) if (!r.host.isConnected) { ROOTS.delete(r); ROOT_STYLES.delete(r); }
+  return [...ROOTS];
+}
+
 export interface ScanOptions {
+  /** Called once for each open shadow root found, so the page watcher can observe it too. */
+  onShadowRoot?: (root: ShadowRoot) => void;
   hideMode: HideMode;
   /** How strongly a cover blurs. 'medium' unless set. */
   blur?: BlurStrength;
@@ -142,12 +186,15 @@ export class Scanner {
   private forceJoin = false;
   /** Joined-text length last checked per block, so an unchanged block is not matched twice. */
   private joined = new WeakMap<Element, number>();
+  /** The scan pass, and cover count, at which each block was last joined. */
+  private joinedPass = new WeakMap<Element, { pass: number; changes: number }>();
   /** Per post: whether it is about the game, and the text length that answer was based on. */
   private about = new WeakMap<Element, { len: number; why: Why | null }>();
   /** Posts holding a weak term that nothing has qualified yet; re-checked if a game mention arrives later. */
   private waiting = new WeakSet<Element>();
   /** Per post: text length at which the "game plus spoiler word" rule was last tried. */
   private spoilTried = new WeakMap<Element, number>();
+  private spoilPass = new WeakMap<Element, { pass: number; changes: number }>();
   private bodyAbout = false;
   private bodyCheckedAt = 0;
   /** Per comment hidden "own content only": the elements marked on the way down to its replies. */
@@ -155,6 +202,9 @@ export class Scanner {
   /** Comments that could not be opened up safely (loose text beside the replies); they stay hidden whole. */
   private whole = new WeakSet<Element>();
   private rescanning = new WeakSet<Element>();
+  private shadowSeen = new WeakSet<ShadowRoot>();
+  /** Custom elements read before their definition arrived: they may get a shadow root without any change the page watcher sees. */
+  private undefinedHosts = new Set<Element>();
   /** The main post of a flat thread page, looked up once per scan pass. */
   private mc: { n: number; el: Element | null; key: string | null; names?: boolean; namesPass: number } | null = null;
   /** The main post's block in its list, and the list: the replies are the blocks after it. */
@@ -183,6 +233,9 @@ export class Scanner {
     this.revealed = opts.keepRevealed ?? new WeakSet();
   }
 
+  /** Goes up whenever a cover is put on or taken off, so the page watcher re-reads them for screen readers only then. */
+  changes = 0;
+
   get count(): number {
     return this.hidden.size;
   }
@@ -203,7 +256,9 @@ export class Scanner {
    */
   refreshPageContext(): boolean {
     const d = this.doc;
-    const meta = (sel: string) => d.querySelector(sel)?.getAttribute('content') ?? '';
+    // The three tags in one search of the page (asked on every pass; a page without them was searched to the end three times).
+    const metas = [...d.querySelectorAll('meta[name="description"], meta[property="og:title"], meta[property="og:description"]')];
+    const meta = (sel: string) => metas.find((m) => m.matches(sel))?.getAttribute('content') ?? '';
     let address = '';
     try {
       address = decodeURIComponent(`${d.location?.pathname ?? ''} ${d.location?.search ?? ''}`);
@@ -319,6 +374,8 @@ export class Scanner {
       return;
     }
     if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
+    // A new child of a comment hidden "own content only" is covered by the stylesheet alone: screen readers need telling.
+    if (root.nodeType === 1 && (root as Element).parentElement?.matches('[data-gsb-own], [data-gsb-in]')) this.changes++;
     if (root.nodeType === 1 && this.flagged) {
       // A rescan of the whole page reaches replies no single added node announced: look under every hidden thread.
       if (root === this.doc.body) for (const h of [...this.hidden.keys()]) if (h.matches(this.opts.threads!)) this.openAll(h);
@@ -327,6 +384,7 @@ export class Scanner {
     if (this.opts.accounts?.size) this.checkLinks(root as Element | Document | DocumentFragment);
     const walker = this.doc.createTreeWalker(root, 4 /* SHOW_TEXT */);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) this.checkText(n as Text);
+    this.enterShadows(root as Element | Document | DocumentFragment);
     if (this.opts.hideImages && root.nodeType === 1) {
       const el = root as Element;
       if (el.matches('img, video')) this.checkMedia(el);
@@ -334,6 +392,50 @@ export class Scanner {
     } else if (this.opts.hideImages) {
       (root as ParentNode).querySelectorAll?.('img, video').forEach((m) => this.checkMedia(m));
     }
+  }
+
+  /** Text drawn inside open shadow roots is read too; each new root is handed to the page watcher (content.ts) to observe. */
+  private enterShadows(root: Element | Document | DocumentFragment): void {
+    const hosts = root.nodeType === 1 && (root as Element).shadowRoot ? [root as Element] : [];
+    for (const el of [...hosts, ...root.querySelectorAll('*')]) {
+      const sr = el.shadowRoot;
+      if (sr && this.takeRoot(sr)) this.scan(sr);
+    }
+    // A custom element not defined yet gets its shadow root when the page's code arrives, and the page watcher sees no change
+    // then (2026-11-05: about one load in eight left a chat spoiler showing). Kept here so lateShadows can look again.
+    if (root.nodeType === 1 && (root as Element).matches(':not(:defined)')) this.undefinedHosts.add(root as Element);
+    root.querySelectorAll(':not(:defined)').forEach((el) => this.undefinedHosts.add(el));
+  }
+
+  /** A shadow root not seen before is noted and handed to the page watcher; false when it was already known. */
+  private takeRoot(sr: ShadowRoot): boolean {
+    if (this.shadowSeen.has(sr)) return false;
+    this.shadowSeen.add(sr);
+    ROOTS.add(sr);
+    this.opts.onShadowRoot?.(sr);
+    return true;
+  }
+
+  /** Whether some custom element is still waiting for its definition (content.ts keeps calling lateShadows meanwhile). */
+  get lateWaiting(): boolean {
+    return this.undefinedHosts.size > 0;
+  }
+
+  /**
+   * Shadow roots that appeared on elements already read, for the caller to scan. Normally only the elements that were waiting
+   * for their definition are looked at; `everywhere` also looks at every element on the page, for a defined element that
+   * attaches its root later (a few times per page only: it reads every element).
+   */
+  lateShadows(everywhere = false): ShadowRoot[] {
+    const found: ShadowRoot[] = [];
+    for (const el of this.undefinedHosts) {
+      if (el.shadowRoot && this.takeRoot(el.shadowRoot)) found.push(el.shadowRoot);
+      if (!el.isConnected || el.matches(':defined')) this.undefinedHosts.delete(el);
+    }
+    if (everywhere) {
+      for (const r of [this.doc, ...shadowRoots()]) for (const el of r.querySelectorAll('*')) if (el.shadowRoot && this.takeRoot(el.shadowRoot)) found.push(el.shadowRoot);
+    }
+    return found;
   }
 
   private checkText(node: Text): void {
@@ -384,6 +486,10 @@ export class Scanner {
   private spoilerPost(el: Element): boolean {
     if (!this.matcher.judgesPosts) return false;
     const post = this.containerFor(el);
+    // Already tried in this pass with nothing covered or shown since: the post reads the same, so the answer is the same no.
+    const seen = this.spoilPass.get(post);
+    if (seen && seen.pass === this.pass && seen.changes === this.changes) return false;
+    this.spoilPass.set(post, { pass: this.pass, changes: this.changes });
     const cards = this.opts.containers;
     // A site post is judged on its own words: the replies nested inside it are posts in their own right.
     const own = cards && post.matches(cards) ? this.ownText(post, cards) : this.textOf(post, POST_READ_CHARS);
@@ -623,11 +729,13 @@ export class Scanner {
       this.hidden.delete(post);
     }
     post.setAttribute('data-gsb-under', this.opts.hideMode);
+    this.changes++;
   }
 
   private strip(): void {
     this.coverKey = null;
     this.doc.querySelectorAll('[data-gsb-under]').forEach((e) => e.removeAttribute('data-gsb-under'));
+    this.changes++;
   }
 
   /** Cover the posts in `el` (a block of the run) that are not covered yet. */
@@ -685,6 +793,7 @@ export class Scanner {
     this.coverKey = null;
     const posts = [...this.doc.querySelectorAll('[data-gsb-under]')];
     posts.forEach((p) => p.removeAttribute('data-gsb-under'));
+    this.changes++;
     for (const p of posts) {
       this.about.delete(p);
       this.spoilTried.delete(p);
@@ -755,6 +864,10 @@ export class Scanner {
     const cards = this.opts.containers;
     const block = inline ?? (cards ? el.closest(cards) : null);
     if (!block || block.childElementCount === 0) return;
+    // Every piece of text in a card leads here: read the block once per pass, unless a cover went on or came off since.
+    const seen = this.joinedPass.get(block);
+    if (seen && seen.pass === this.pass && seen.changes === this.changes) return;
+    this.joinedPass.set(block, { pass: this.pass, changes: this.changes });
     // A post's own words only: replies nested inside it are posts in their own right.
     const text = inline ? this.joinedText(block) : this.ownText(block, cards!);
     if (text.length > MAX_POST_CHARS || (!this.forceJoin && this.joined.get(block) === text.length)) return;
@@ -1083,6 +1196,7 @@ export class Scanner {
     k.setAttribute('data-gsb-in', 'keep');
     set.add(k);
     h.setAttribute('data-gsb-own', '');
+    this.changes++;
     return true;
   }
 
@@ -1105,6 +1219,7 @@ export class Scanner {
     this.marks.get(h)?.forEach((m) => m.removeAttribute('data-gsb-in'));
     this.marks.delete(h);
     h.removeAttribute('data-gsb-own');
+    this.changes++;
   }
 
   /**
@@ -1155,9 +1270,24 @@ export class Scanner {
     return el === this.doc.body || el === this.doc.documentElement || el.matches('main');
   }
 
+  private styleRoot(r: ShadowRoot): void {
+    let st = ROOT_STYLES.get(r);
+    if (!st) {
+      st = this.doc.createElement('style');
+      st.setAttribute('data-gsb-style', '');
+      r.append(st);
+      ROOT_STYLES.set(r, st);
+    }
+    // Written only when it changes (a new blur strength): each write is a page change the watcher would read again.
+    const css = cssFor(this.opts.blur);
+    if (st.textContent !== css) st.textContent = css;
+  }
+
   /** `at` is where the match itself sits, when the hide comes from a match and not from judging the post. */
   private hide(el: Element, res: MatchResult, why: Why = 'alone', at?: Element): void {
     if (this.revealed.has(el)) return;
+    const r = el.getRootNode();
+    if (r !== this.doc && (r as ShadowRoot).host) this.styleRoot(r as ShadowRoot);
     // Never the whole page: that would blank it for one match.
     if (this.pageLevel(el) && !this.cardFor(el)) return;
     if (this.opts.main) {
@@ -1186,6 +1316,7 @@ export class Scanner {
       }
     }
     el.setAttribute('data-gsb', this.opts.hideMode);
+    this.changes++;
     // Which rule hid it. A rule name only, never the matched words.
     el.setAttribute('data-gsb-why', why);
     this.hideKeys.set(el, keysFor(why, res.groups));
@@ -1219,8 +1350,8 @@ export class Scanner {
     };
     if (mode === 'hold' && this.opts.hideMode === 'blur') {
       bar.textContent = text.replace('click to show', 'hold to peek');
-      const show = (e: Event) => { stop(e); el.setAttribute('data-gsb-peek', ''); };
-      const hide = () => el.removeAttribute('data-gsb-peek');
+      const show = (e: Event) => { stop(e); if (!el.hasAttribute('data-gsb-peek')) { el.setAttribute('data-gsb-peek', ''); syncReaders(this.doc); } };
+      const hide = () => { if (!el.hasAttribute('data-gsb-peek')) return; el.removeAttribute('data-gsb-peek'); syncReaders(this.doc); };
       bar.addEventListener('pointerdown', show);
       for (const ev of ['pointerup', 'pointerleave', 'pointercancel', 'blur']) bar.addEventListener(ev, hide);
       bar.addEventListener('click', stop);
@@ -1242,7 +1373,13 @@ export class Scanner {
         return;
       }
       this.reveal(el);
+      syncReaders(this.doc);
     });
+  }
+
+  /** How a piece of text outside the page body (the tab title) would be judged here, with this page's context. */
+  judgeText(text: string): MatchResult | null {
+    return this.matcher.match(text, this.pageContext);
   }
 
   reveal(el: Element): void {
@@ -1268,6 +1405,7 @@ export class Scanner {
 
   revealAll(): void {
     for (const el of [...this.hidden.keys()]) this.reveal(el);
+    syncReaders(this.doc);
   }
 
   /** Undo everything (used before rescanning with new settings). */
@@ -1283,14 +1421,17 @@ export class Scanner {
     this.mc = null;
     this.anchor = null;
     this.revealedThreads.clear();
-    this.doc.querySelectorAll('[data-gsb-in], [data-gsb-own]').forEach((e) => (e.removeAttribute('data-gsb-in'), e.removeAttribute('data-gsb-own')));
     this.sizes?.disconnect();
-    this.doc.querySelectorAll('[data-gsb-peek]').forEach((e) => e.removeAttribute('data-gsb-peek'));
-    // Items the user already showed stay shown across a restart when the caller keeps that set.
-    if (!this.opts.keepRevealed) {
-      this.doc.querySelectorAll('[data-gsb-revealed]').forEach((e) => e.removeAttribute('data-gsb-revealed'));
-      this.revealed = new WeakSet();
+    this.undefinedHosts.clear();
+    // Marks inside shadow roots too: the root's own copy of the cover style would keep them covered.
+    for (const r of [this.doc, ...shadowRoots()]) {
+      r.querySelectorAll('[data-gsb-in], [data-gsb-own]').forEach((e) => (e.removeAttribute('data-gsb-in'), e.removeAttribute('data-gsb-own')));
+      r.querySelectorAll('[data-gsb-peek]').forEach((e) => e.removeAttribute('data-gsb-peek'));
+      // Items the user already showed stay shown across a restart when the caller keeps that set.
+      if (!this.opts.keepRevealed) r.querySelectorAll('[data-gsb-revealed]').forEach((e) => e.removeAttribute('data-gsb-revealed'));
     }
+    if (!this.opts.keepRevealed) this.revealed = new WeakSet();
+    syncReaders(this.doc);
   }
 
   /**

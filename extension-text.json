@@ -415,6 +415,7 @@
     "masterOffPage": "Off on this page: nothing is hidden here.",
     "popupTitle": "Spoiler Blocker",
     "hideAgain": "Turn hiding back on",
+    "layoutChanged": "This site seems to have changed its layout, so the general rules are used on this page.",
     "pauseName": "Pause everywhere",
     "pause15": "15 min",
     "pause60": "1 hour",

@@ -88,21 +88,21 @@ export function decodeList(raw: string, storedVersion: number): SpoilerList {
   for (const t of terms) {
     // A bad entry is dropped, not fatal: one odd entry, or a kind only newer versions know, must not block every other update.
     if (!t || typeof t !== 'object') continue;
-    const { t: text, c, s, tr, k, l, o, r } = t as Record<string, unknown>;
+    const { t: text, c, s, tr, k, l, o, r, f } = t as Record<string, unknown>;
     if (typeof text !== 'string') continue;
     if (typeof c !== 'string' || !cats.has(c)) continue;
     if (s !== 'strong' && s !== 'weak' && s !== 'context') continue;
-    // Kind and raised level are optional: lists made before levels existed carry neither.
-    if (k !== undefined && !isKind(k)) continue;
-    if (l !== undefined && l !== 1 && l !== 2 && l !== 3) continue;
+    // Kind and raised level are optional: lists made before levels existed carry neither. One this version does not know is
+    // ignored, not the whole name: the name stays on the list and its kind is guessed from its category and strength (kindOf).
     const safe = cleanTermText(text, s === 'context');
     if (safe === null) continue;
     const term: Term = { t: safe, c: c as Term['c'], s };
     if (tr === true) term.tr = true;
     if (o === true) term.o = true;
     if (r === true) term.r = true;
-    if (k !== undefined) term.k = k;
-    if (l !== undefined) term.l = l;
+    if (f === true && s !== 'context') term.f = true;
+    if (isKind(k)) term.k = k;
+    if (l === 1 || l === 2 || l === 3) term.l = l;
     clean.push(term);
   }
   const r = (pub as Record<string, unknown>).r;

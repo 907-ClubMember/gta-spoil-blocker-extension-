@@ -50,8 +50,8 @@ export const SPOILER_WORDS = {
  * wider than SPOILER_WORDS: "great shot" alone means nothing. "get" and "finally" are left out: "how do I get to" is a normal question.
  */
 export const PLACE_EVENT_WORDS = [
-  'shot', 'shoots', 'shootout', 'gunned', 'falls apart', 'fall apart', 'is where', 'was where', 'happens', 'happened', 'ends', 'ended', 'showdown', 'ambush', 'ambushed',
-  'massacre', 'body', 'bodies', 'blows up', 'blown up', 'explodes', 'arrested', 'captured', 'kidnapped', 'rescued', 'goes wrong', 'went wrong', 'last stand', 'confrontation', 'final', 'secret',
+  'shot', 'shoots', 'shootout', 'gunned', 'falls apart', 'fall apart', 'is where', 'was where', 'happens', 'happened', 'showdown', 'ambush', 'ambushed',
+  'massacre', 'body', 'bodies', 'blows up', 'blown up', 'explodes', 'arrested', 'captured', 'kidnapped', 'rescued', 'goes wrong', 'went wrong', 'last stand', 'confrontation',
 ] as const;
 
 /**

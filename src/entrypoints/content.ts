@@ -1,16 +1,22 @@
 import { accountKeys, accountWords } from '../accounts';
-import { Matcher } from '../matcher';
-import { Scanner } from '../content/scanner';
+import { Matcher, labelFor } from '../matcher';
+import { Scanner, shadowRoots, syncReaders } from '../content/scanner';
 import { activeList } from '../list/store';
 import { CATEGORIES } from '../types';
 import { shapeTerms } from '../levels';
 import { adapterFor } from '../adapters';
+import { staleRule } from '../adapters/stale';
 import { BLACKOUT_WORDS, timerNextChange, addressChange, blackoutNextChange, blackoutOn, isSuspended, listVerdict, loadSettings, settingsForUrl, type ListVerdict, type Settings } from '../settings';
 import { isSearchPage, offSelector } from '../adapters/parts';
+import { keepLast } from '../keep-last';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   allFrames: true,
+  // Frames with no address of their own (srcdoc, about:blank filled by the page's script) were never read (audit 2026-11-03).
+  // Not a new permission: they run only inside pages the script already runs on.
+  matchAboutBlank: true,
+  matchOriginAsFallback: true,
   runAt: 'document_start',
   async main() {
     const isTop = window === window.top;
@@ -38,6 +44,9 @@ export default defineContentScript({
      * page in a frame inside it (told by the background; `tabUrl` is the last answer).
      */
     let tabUrl: string | undefined;
+    /** This address is read with the general rules: the site's own rule looked stale here (src/adapters/stale.ts). */
+    let genericAt: string | null = null;
+    let staleTimers: number[] = [];
     /** The Safe/Strict answer the running scan was started with, and the settings it was started from. */
     let verdict: ListVerdict = 'normal';
     let lastSaved: Settings | undefined;
@@ -111,6 +120,8 @@ export default defineContentScript({
     let queue = new Set<Node>();
     let timer: number | undefined;
     let pruneTimer: number | undefined;
+    /** The next look for shadow roots that appeared unseen (custom elements defined late). */
+    let lateFrame: number | undefined;
     /** Wakes the scanner when a pause or the end date passes. */
     let wake: number | undefined;
     /** Counts restarts, so a start overtaken by a newer one (two quick setting changes) gives up. */
@@ -119,6 +130,42 @@ export default defineContentScript({
     const BUDGET_MS = 8;
     const LOADING_BUDGET_MS = 40;
 
+    // A restart (new list or settings) clears every cover and then waits for storage before scanning again; the browser can draw
+    // in between, so hidden posts flashed into view (audit 2026-11-03: 1-4 frames each hourly list update). Old covers are kept
+    // as a hold until the new scan has run, then lifted: what the new scan hides is covered again by then.
+    const holdCovers = () => {
+      for (const r of [document, ...shadowRoots()]) {
+        r.querySelectorAll('[data-gsb]:not([data-gsb-peek])').forEach((e) => e.setAttribute('data-gsb-hold', e.getAttribute('data-gsb')!));
+        r.querySelectorAll('[data-gsb-under]').forEach((e) => e.setAttribute('data-gsb-hold', e.getAttribute('data-gsb-under')!));
+      }
+    };
+    const releaseHold = () => {
+      for (const r of [document, ...shadowRoots()]) r.querySelectorAll('[data-gsb-hold]').forEach((e) => e.removeAttribute('data-gsb-hold'));
+      syncReaders(document);
+    };
+
+    // The tab title is outside the page, so no cover reaches it: a spoiler headline stayed in the tab strip and in history
+    // (audit 2026-11-03). It is judged like the page's own text and swapped for the label; the real title comes back when
+    // it no longer counts (shown, paused, a Safe page, new settings). Top frame only.
+    let realTitle: string | null = null;
+    let shownTitle: string | null = null;
+    let titleShown = false;
+    const guardTitle = () => {
+      if (!isTop) return;
+      const cur = document.title;
+      const ours = shownTitle !== null && cur === shownTitle;
+      const source = ours ? realTitle! : cur;
+      const r = scanner && !titleShown ? scanner.judgeText(source) : null;
+      if (r) {
+        realTitle = source;
+        shownTitle = labelFor(r);
+        if (cur !== shownTitle) document.title = shownTitle;
+      } else {
+        if (ours) document.title = realTitle!;
+        realTitle = shownTitle = null;
+      }
+    };
+
     const stop = () => {
       observer?.disconnect();
       observer = null;
@@ -126,17 +173,37 @@ export default defineContentScript({
       timer = undefined;
       clearTimeout(pruneTimer);
       clearTimeout(wake);
+      if (lateFrame !== undefined) cancelAnimationFrame(lateFrame);
+      lateFrame = undefined;
+      for (const t of staleTimers) clearTimeout(t);
+      staleTimers = [];
       queue = new Set();
       scanner?.clear();
       scanner = null;
       tellCount();
     };
 
+    // Read both every start, so a tab cut off by an update (even while paused) keeps what it last had.
+    const keptSettings = keepLast<Settings>(loadSettings);
+    const keptList = keepLast(activeList);
     const start = async () => {
+      titleShown = false;
+      holdCovers();
       stop();
       reported = undefined; // a restart tells the background again, so no stale answer survives
       const mine = ++generation;
-      const saved: Settings = await loadSettings();
+      try {
+        await restart(mine);
+      } finally {
+        // A start overtaken by a newer one leaves the hold to it; otherwise every way out (paused, Safe page, scanned) lifts it.
+        if (mine === generation) {
+          releaseHold();
+          guardTitle();
+        }
+      }
+    };
+    const restart = async (mine: number) => {
+      const [saved, list] = await Promise.all([keptSettings(), keptList()]);
       const host = location.hostname;
       if (!isTop) {
         tabUrl = (await askTabUrl()) ?? tabUrl;
@@ -169,9 +236,8 @@ export default defineContentScript({
       // A search page counts as one part; when it is switched off nothing on it is read.
       if (searchSkipped) return void report(false);
 
-      const list = await activeList();
-      if (mine !== generation) return;
-      const site = adapterFor(host, location.pathname);
+      const here = location.host + location.pathname;
+      const site = genericAt === here ? null : adapterFor(host, location.pathname);
       // What to protect (levels and kinds), trailers and the per-category switches shape the list before matching.
       const terms = shapeTerms(list.terms, s);
       const accounts = accountKeys(s);
@@ -184,18 +250,37 @@ export default defineContentScript({
         // Launch-week blackout (optional, off by default): every post naming the game is hidden.
         customWords: [...s.customWords, ...accountWords(s), ...(blackoutOn(s, list.release, Date.now()) ? BLACKOUT_WORDS : [])],
         hintWords: s.hintWords,
+        allowTrailers: s.allowTrailers,
       });
       // A tab left open across the blackout's first or last day picks up the change by itself.
       const turn = [blackoutNextChange(s, list.release, Date.now()), timerNextChange(s, Date.now())].filter((t) => t !== undefined).sort((a, b) => a - b)[0];
       if (turn) wake = window.setTimeout(() => void start(), Math.min(turn - Date.now() + 1000, 2 ** 31 - 1));
-      const sc = new Scanner(document, matcher, { hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, revealMode: s.revealMode, keepRevealed: s.rememberReveals ? keptReveals : undefined, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, thumbsOnly: s.thumbsOnly, hideImages: s.hideImages, hideMediaPosts: s.hideMediaPosts, mediaNearGame: s.mediaNearGame, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, chat: site?.chat, threads: site?.threads, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, accounts, ownPage: site?.ownPage });
+      const watchOpts: MutationObserverInit = {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['src', 'srcset', 'alt', 'poster', ...(accounts.size ? ['href'] : [])],
+      };
+      const sc = new Scanner(document, matcher, { onShadowRoot: (r) => observer?.observe(r, watchOpts), hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, revealMode: s.revealMode, keepRevealed: s.rememberReveals ? keptReveals : undefined, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, thumbsOnly: s.thumbsOnly, hideImages: s.hideImages, hideMediaPosts: s.hideMediaPosts, mediaNearGame: s.mediaNearGame, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, chat: site?.chat, threads: site?.threads, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, accounts, ownPage: site?.ownPage });
       scanner = sc;
       if (!isTop) sc.setOuterContext(outer);
       let hadContext = sc.refreshPageContext();
       report(hadContext);
       if (document.body) sc.scan(document.body);
       sc.quiet();
+      syncReaders(document);
+      let synced = sc.changes;
+      guardTitle();
       tellCount();
+      // A site that changed its layout overnight: once the page has filled in, check the rule still finds its posts.
+      if (site && isTop) for (const ms of [3000, 10000]) staleTimers.push(window.setTimeout(() => {
+        if (scanner !== sc || genericAt === here) return;
+        if (staleRule(site, document)) {
+          genericAt = here;
+          void start();
+        }
+      }, ms));
 
       // New content is checked inside the observer callback, which runs before the browser paints it,
       // so a spoiler is hidden before it is ever shown. Work past the budget is put off so pages stay smooth.
@@ -213,14 +298,15 @@ export default defineContentScript({
         report(about);
         if (about && !hadContext) {
           // The title or heading has just shown the page is about the game: weak terms seen earlier now count.
+          // Then on to the end of the pass, so the tab title, screen readers and the count follow at once.
           hadContext = true;
           queue.clear();
           sc.scan(body);
-          return;
         }
         for (const n of queue) {
           queue.delete(n);
-          if (n.isConnected && (n === body || body.contains(n))) sc.scan(n);
+          // Inside a shadow root (Reddit's chat) body.contains says no, so the node's own root decides.
+          if (n.isConnected && (n === body || body.contains(n) || (n.getRootNode() as ShadowRoot).host)) sc.scan(n);
           // While the page is still loading nobody can interact with it yet, so hiding takes priority.
           if (performance.now() - t0 > (document.readyState === 'loading' ? LOADING_BUDGET_MS : BUDGET_MS)) break;
         }
@@ -228,8 +314,40 @@ export default defineContentScript({
         else tellCount();
         clearTimeout(pruneTimer);
         sc.quiet();
+        // Reading every cover on a big page costs a few milliseconds: only when one was put on or taken off since last time.
+        if (sc.changes !== synced) {
+          synced = sc.changes;
+          syncReaders(document);
+        }
+        guardTitle();
         pruneTimer = window.setTimeout(() => sc.prune(), 1000);
+        watchLate();
       };
+
+      // A custom element defined after it was read (lazy chat code, as Reddit's) gets its shadow root with no change the page
+      // watcher sees, so it was never read (2026-11-05). While one waits for its definition, look again before each paint,
+      // for up to half a minute after the page last changed; and twice on the whole page for a defined one that is late too.
+      let lateUntil = 0;
+      const lookLate = (everywhere = false) => {
+        if (scanner !== sc) return;
+        const roots = sc.lateShadows(everywhere);
+        if (!roots.length) return;
+        for (const r of roots) queue.add(r);
+        if (timer === undefined) drain();
+      };
+      const lateTick = () => {
+        lateFrame = undefined;
+        lookLate();
+        // The drain above may have asked for the next look already.
+        if (lateFrame === undefined && scanner === sc && sc.lateWaiting && performance.now() < lateUntil) lateFrame = requestAnimationFrame(lateTick);
+      };
+      function watchLate() {
+        if (!sc.lateWaiting) return;
+        lateUntil = performance.now() + 30_000;
+        if (lateFrame === undefined) lateFrame = requestAnimationFrame(lateTick);
+      }
+      watchLate();
+      for (const ms of [3000, 10000]) staleTimers.push(window.setTimeout(() => lookLate(true), ms));
 
       observer = new MutationObserver((muts) => {
         for (const m of muts) {
@@ -248,13 +366,9 @@ export default defineContentScript({
       // The page is still loading at this point, so watch the whole document, not just a body that may not exist yet.
       // Lazy-loaded pictures get their address and description after they are added, so those attributes are watched too,
       // and so are link addresses (spoiler accounts).
-      observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: ['src', 'srcset', 'alt', 'poster', ...(accounts.size ? ['href'] : [])],
-      });
+      observer.observe(document.documentElement, watchOpts);
+      // The page watcher does not see inside shadow roots: each one found is watched on its own.
+      for (const r of shadowRoots()) observer.observe(r, watchOpts);
     };
 
     const begin = async () => {
@@ -288,6 +402,7 @@ export default defineContentScript({
         if (msg?.type === 'getCount') { if (isTop) reply({ count: scanner?.count ?? 0, groups: scanner?.groups ?? {} }); }
         else if (msg?.type === 'askPageAbout') { if (isTop) reply({ about: reported === true }); }
       else if (msg?.type === 'askPageUrl') { if (isTop) reply({ url: location.href }); }
+      else if (msg?.type === 'askGeneric') { if (isTop) reply({ generic: genericAt === location.host + location.pathname }); }
       else if (msg?.type === 'pageUrl') {
         if (!isTop && typeof msg.url === 'string' && msg.url !== tabUrl) { tabUrl = msg.url; checkAddress(); }
       }
@@ -296,23 +411,35 @@ export default defineContentScript({
         }
         else if (msg?.type === 'revealAll') {
           scanner?.revealAll();
+          titleShown = true;
+          guardTitle();
           tellCount();
           reply({ count: 0 });
         }
       });
     };
 
-    // A frame that is tiny at start may grow (a lazy comment box): look again once it has a size.
-    if (!isTop && !bigEnough()) {
+    // A frame with no address of its own is often an empty ad slot: it starts only once it holds something to read.
+    const ownless = !isTop && /^(about|data|blob):$/.test(location.protocol);
+    const filled = () => !!document.body && (/\S/.test(document.body.textContent ?? '') || !!document.body.querySelector('img, video'));
+    const ready = () => isTop || (bigEnough() && (!ownless || filled()));
+    // A frame that is tiny at start may grow (a lazy comment box), and an empty one may be filled later: look again then.
+    if (!ready()) {
       let ro: ResizeObserver | undefined;
+      let mo: MutationObserver | undefined;
+      let begun = false;
       const retry = () => {
-        if (!bigEnough()) return;
+        if (begun || !ready()) return;
+        begun = true;
         ro?.disconnect();
+        mo?.disconnect();
         window.removeEventListener('load', retry);
         void begin();
       };
       window.addEventListener('load', retry);
       if (typeof ResizeObserver !== 'undefined') (ro = new ResizeObserver(retry)).observe(document.documentElement);
+      // On the document itself, so it still sees a frame the page rewrites with document.open().
+      if (ownless) (mo = new MutationObserver(retry)).observe(document, { childList: true, subtree: true, characterData: true });
       return;
     }
     await begin();

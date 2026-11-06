@@ -20,12 +20,22 @@ export function shapeTerms(terms: Term[], s: ShapeSettings): Term[] {
   const presetRow = presetKindModes(base);
   const out: Term[] = [];
   for (const t of terms) {
-    if (s.allowTrailers && t.tr) continue;
+    // Shown in the trailers, so the name itself may show. It still marks a post as about the game, so a plot post beside it hides.
+    if (s.allowTrailers && t.tr) {
+      out.push({ ...t, s: 'context' });
+      continue;
+    }
     const level = levelOf(t);
     const kind = kindOf(t);
     // The raise lifts a name under a preset, and in Custom while its kind's row is untouched.
     const raised = !!t.l && level >= threshold && (s.protect !== 'custom' || s.kindModes[kind] === presetRow[kind]);
     if (t.r) {
+      // Its category is switched off: the name never hides, but it still marks a post as about the game (label review 2026-11-05;
+      // without this the matcher dropped it with the category).
+      if (s.categoryModes[t.c] === 'off') {
+        out.push({ ...t, s: 'context' });
+        continue;
+      }
       let rare = s.rareNames ?? 'mention';
       // A name the job raised to the preset's level gives the story away: it hides as the preset says.
       if (rare !== 'always' && raised) rare = 'always';

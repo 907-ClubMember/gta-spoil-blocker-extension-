@@ -30,6 +30,12 @@ export interface Term {
    * setting (Settings.rareNames), and marks a post as being about the game, since such a name almost never appears anywhere else.
    */
   r?: true;
+  /**
+   * Safe to match loosely (2026-11-04): every word of six letters or more in the name is made up (no English word, no real name),
+   * so a misspelling, plural or star-censored spelling of it can only mean this name. Such matches never count as a game sign and
+   * are weak matches: they hide with a game mention, or anywhere on Strict (as every weak name does).
+   */
+  f?: true;
 }
 
 /** The published list, after decoding. */
