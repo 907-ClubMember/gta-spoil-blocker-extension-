@@ -414,6 +414,30 @@ export class Matcher {
     return out;
   }
 
+  /**
+   * Long all-lowercase words (a glued handle: "zorblaxquuxdiesin") with the list's own words set apart inside them, longest first, left to right.
+   * Only for a name row's high-risk test: a handle has no capitals to split at.
+   */
+  splitLower(text: string): string {
+    return text.replace(/\p{Ll}{9,}/gu, (w) => {
+      let out = '';
+      let i = 0;
+      let last = 0;
+      while (i < w.length) {
+        let hit = 0;
+        for (let len = Math.min(w.length - i, 14); len >= 4; len--) {
+          const piece = w.slice(i, i + len);
+          if (this.vocab.has(piece) || this.spoilers.has(piece)) { hit = len; break; }
+        }
+        if (!hit) { i++; continue; }
+        out += `${w.slice(last, i)} ${w.slice(i, i + hit)} `;
+        i += hit;
+        last = i;
+      }
+      return out + w.slice(last);
+    });
+  }
+
   /** Light hides only names that block alone; the rules that judge a post as a whole are off. */
   get judgesPosts(): boolean {
     return this.strictness !== 'light';

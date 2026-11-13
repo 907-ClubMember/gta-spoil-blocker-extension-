@@ -42,8 +42,8 @@ export interface Adapter {
   /**
    * The main post of a thread page, for sites whose replies are not nested but follow it as separate
    * posts. A reply to a main post that names the game counts as being about it, and hiding the main post
-   * hides the replies after it too (the reply option). With `threads` (Reddit, Instagram): comments that sit inside the main post
-   * (Instagram) are covered with it as well, see Scanner `inMain`.
+   * hides the replies after it too (the reply option). With `threads` (Reddit, Instagram, Facebook): comments that sit inside the main post
+   * (Instagram, Facebook) are covered with it as well, see Scanner `inMain`.
    */
   main?: string;
   /** The page's own post, where comments sit beside it, not inside it (new Reddit): when it is covered for its words, their reply pictures are too. */
@@ -64,7 +64,10 @@ export interface Adapter {
    * weak name, a spoiler word, the game's name, or the chat around it).
    */
   strongOnly?: string;
-  /** Pattern whose first group identifies the thread in the address; `main` counts only on a matching address. */
+  /**
+   * Pattern whose first group (or whole match) identifies the thread in the address; `main` counts only on a matching address. Tested on the
+   * path, and on the path with its query only when the pattern names a "?" (Facebook's permalink.php).
+   */
   threadKey?: RegExp;
   /** Blocks that end a thread page's replies, whatever they hold (Reddit's "more posts" feed): see Scanner `threadEnd`. */
   threadEnd?: string;
@@ -76,7 +79,7 @@ export interface Adapter {
   keepClearNot?: RegExp;
   people?: string;
   bio?: string;
-  /** The comments of a thread page sit inside the main post (Instagram): these blocks are covered with it, nothing after it. See Scanner `inMain`. */
+  /** The comments of a thread page sit inside the main post (Instagram, Facebook): these blocks are covered with it, nothing after it. See Scanner `inMain`. */
   commentsInside?: string;
   /** Cards that count only on a thread page (where `threadKey` matches the address), never on a feed. See Scanner `syncCards`. */
   threadCards?: string;
@@ -130,6 +133,14 @@ const FB_REPLY = 'div:not([role="feed"] > div):not([role="dialog"]):not([data-pa
 // comment (its words differ by language, its presence does not).
 const FB_HAS_COMMENTS = ':has([role="article"][aria-label])';
 const FB_POST = `[role="feed"] > div${FB_HAS_COMMENTS}, [role="article"]:not([aria-label])${FB_HAS_COMMENTS}, [role="dialog"]${FB_HAS_COMMENTS}`;
+// The post of a post's own page (B-035): its article (no label; a comment's and a reply's carry one), the outermost one, whether its comments
+// have loaded or not. A dialog that holds one (a post opened over the feed at its address) leaves out what is under it. It must hit once: a page
+// with more than one post box (or none) has no main post, and is judged as a feed.
+const FB_TOP = '[role="article"]:not([aria-label]):not([role="article"] *)';
+const FB_MAIN = `[role="dialog"] ${FB_TOP}, body:not(:has([role="dialog"] ${FB_TOP})) ${FB_TOP}`;
+// A post's own address: /<page>/posts/<id>, /groups/<group>/posts/<id> (or /permalink/<id>), /permalink.php?story_fbid=<id>. Never a feed, a
+// search, a photo or a video. The key is the whole match, or the story id for permalink.php; the query counts only here (the pattern names a "?").
+const FB_THREAD = /^\/(?:groups\/[^/]+\/(?:posts|permalink)\/[^/?#]+|(?!groups\/|permalink\.php)[^/]+\/posts\/[^/?#]+|permalink\.php\?(?:[^#]*&)?story_fbid=([^&#]+))/;
 
 // Google search in every country, from Google's own list (google.com/supported_domains): google.co.uk and the
 // rest got no rule before. All shorter than mail.google.com, so Gmail keeps its own rule.
@@ -304,6 +315,9 @@ export const ADAPTERS: Adapter[] = [
     hosts: ['kick.com'],
     // A stream card, and each line of chat.
     containers: '[data-testid="livestream-results-card"], #chatroom-messages [data-index], article',
+    // The live player (read live: #injected-channel-player holds the <video id="video-player">): never covered, muted or paused. Recorded media is not live.
+    keepClear: '#injected-channel-player, #video-player',
+    keepClearNot: /\/(?:video|videos|clips?)\/|[?&]clip=/,
     chat: true,
   },
   {
@@ -332,6 +346,11 @@ export const ADAPTERS: Adapter[] = [
     viewers: true,
     mediaPostPictures: true,
     replyAreas: `${FB_COMMENT} > div:nth-child(n+2)`,
+    // On a post's own page the comments sit inside the post: when it is covered (or only its picture is), they are covered with it (B-035, as
+    // on Instagram). A comment's block (it holds its replies), and a labelled article with siblings (a reply that is a post box of its own).
+    main: FB_MAIN,
+    threadKey: FB_THREAD,
+    commentsInside: `${FB_REPLY}, [role="article"][aria-label]:not(:only-child)`,
   },
   {
     name: 'Discord',

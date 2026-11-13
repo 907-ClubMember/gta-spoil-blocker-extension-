@@ -4,7 +4,7 @@ import { choiceRow, el, preview, rememberFocus, restoreFocus, twoPress } from '.
 import { DONATE_URL, MAKER_URL, WIKI_URL } from '../../donate';
 import { installKindOf, showUpdateSteps } from '../../versions';
 import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, REACTION_GIF_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT, BLACKOUT_TEXT } from '../../text';
-import { DEFAULT_SETTINGS, PAGE_PARTS, WORDS_ONLY_TOPICS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, PAGE_PARTS, WORDS_ONLY_TOPICS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, samePattern, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
 import { activeList, describeResult, loadMeta } from '../../list/store';
 import { CATEGORIES, KINDS, KIND_GROUP, KIND_GROUPS } from '../../types';
 import { countByCategory } from '../../list';
@@ -182,7 +182,6 @@ function wordList(
 }
 
 const KIND_ORDER = { site: 0, prefix: 1, page: 2 } as const;
-const samePattern = (a: SitePattern, b: SitePattern) => a.kind === b.kind && a.host === b.host && a.path.toLowerCase() === b.path.toLowerCase();
 
 /**
  * The Safe and Always Strict lists. One box takes a pasted address or a bare site. A bare site is added at once;

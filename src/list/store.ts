@@ -23,9 +23,9 @@ export function builtinList(): SpoilerList {
   return decodeList(JSON.stringify(builtin), 0);
 }
 
-/** The saved list counts only when it is newer than the built-in copy, else the built-in copy is used. */
+/** The saved list counts only when it is newer than the built-in copy and holds a usable name, else the built-in copy is used. */
 export function chooseList(saved: SpoilerList | undefined, base: SpoilerList): { list: SpoilerList; savedInUse: boolean } {
-  return saved !== undefined && saved.v > base.v ? { list: saved, savedInUse: true } : { list: base, savedInUse: false };
+  return saved !== undefined && Array.isArray(saved.terms) && saved.terms.some(usableTerm) && saved.v > base.v ? { list: saved, savedInUse: true } : { list: base, savedInUse: false };
 }
 
 /** Downloaded list if there is a newer one than the built-in copy, else the built-in copy. */

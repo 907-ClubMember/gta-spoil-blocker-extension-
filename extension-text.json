@@ -464,6 +464,13 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_4": [
+      "Turn off on this page: one click in the popup, with Undo.",
+      "Twitch and Kick live streams stay clear and keep their sound. Replays and clips are judged like any video.",
+      "X: a spoiler written into a name or handle, even run together, is covered. Plain names stay.",
+      "Facebook: comments under a covered post are covered with it.",
+      "Discord: Klipy GIFs that give nothing away no longer stay covered."
     ]
   },
   "coverSource": {
@@ -487,7 +494,7 @@
   },
   "text": {
     "previewPost": "Franklin and Lamar argue about cars in Strawberry.",
-    "settingsIntro": "Changes save by themselves and reach open pages straight away. Examples here are from GTA V, so they give nothing away about GTA 6.",
+    "settingsIntro": "Changes save by themselves and reach open pages straight away. Examples here use an invented game, ZZG 9, so they give nothing away about GTA 6.",
     "resetName": "Reset to defaults",
     "resetDone": "Settings are back to how they came.",
     "resetHelp": "Puts every setting back the way it came, including your own words, sites and accounts. The spoiler list is kept.",
@@ -590,6 +597,9 @@
     "cannotCheck": "This page can't be checked: browsers keep their own pages off limits.",
     "openSettings": "Settings",
     "offOnSite": "Turn off on {site}",
+    "offOnPage": "Turn off on this page",
+    "pageOffDone": "Turned off on this page",
+    "pageOffUndo": "Undo",
     "sitePictures": {
       "name": "Pictures on this site",
       "covered": "Covered",

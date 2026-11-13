@@ -297,9 +297,13 @@ function onDiscord(el: Element): boolean {
   return page === 'discord.com' || page.endsWith('.discord.com');
 }
 
+/** The Discord message an element is in; null off Discord or outside a message. */
+export function discordMessageOf(el: Element): Element | null {
+  return onDiscord(el) ? el.closest(DISCORD_MESSAGE) : null;
+}
+
 function discordMessageSlugs(el: Element): string[] {
-  if (!onDiscord(el)) return [];
-  const msg = el.closest(DISCORD_MESSAGE);
+  const msg = discordMessageOf(el);
   if (!msg) return [];
   const out: string[] = [];
   for (const a of msg.querySelectorAll('a[href]')) {

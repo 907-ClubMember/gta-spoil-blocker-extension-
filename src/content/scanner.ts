@@ -6,13 +6,32 @@ import { SOURCE_SENTENCE, SOURCE_TAG, pickSource, type CoverResult, type Source,
 import { BARE_PICTURES, type BlurStrength, type HideMode, type Pictures, type RevealMode } from '../settings';
 import { DEBUG_WHY } from '../debug-flag';
 import { unwrap, OFFICIAL_SITES, TRAILER_WORDS, handleOf, hasOfficialHandles, hasPublisherAccounts, isOfficialChannelLink, isOfficialHandle, isOfficialName, isPublisherHandle, isStoreLink, isStorePage, isYouTube } from '../adapters/official';
-import { isLibraryGif, libraryLabel, libraryUrls, placeholderFor } from './gifs';
+import { discordMessageOf, isLibraryGif, libraryLabel, libraryUrls, placeholderFor } from './gifs';
 
 const POST_SELECTOR = 'article, [role="article"], li';
 /** A post/card longer than this is probably a whole article page, so hide just the matching paragraph. */
 const MAX_POST_CHARS = 1500;
 /** The covers an official store page, result, card or post is let through for: the announced leads, not a name that hides alone or a spoiler word. */
 const STORE_WHY: ReadonlySet<Why> = new Set<Why>(['mention', 'page', 'two-names', 'hint', 'near-game', 'media', 'heading', 'reply']);
+/** A media duration that is a real video length. A live player has Infinity, NaN, or a huge finite stand-in (the IVS player on Twitch and Kick: about 2^30 s). */
+function isRecorded(d: number): boolean {
+  return Number.isFinite(d) && d < 1e8;
+}
+/** The real player among a root's videos (a live page can hold small preview clips too): the largest on screen, a playing one on a tie, else the first. */
+function playerIn(root: Element): HTMLVideoElement | null {
+  let best: HTMLVideoElement | null = null;
+  let area = -1;
+  for (const v of root.querySelectorAll('video')) {
+    const r = v.getBoundingClientRect();
+    const a = r.width * r.height;
+    if (a > area || (a === area && best?.paused && !v.paused)) { best = v; area = a; }
+  }
+  return best;
+}
+/** Splits a glued name at its capitals and at letter-digit edges: "@ZorblaxQuuxDiesInZZG9" -> "Zorblax Quux Dies In ZZ G 9" (the @ is dropped). */
+function unglue(text: string): string {
+  return text.replace(/@/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([A-Za-z])([0-9])/g, '$1 $2');
+}
 const THREAD_HEADING = 'h1, h2, h3, [role="heading"]';
 const BLOCK_SELECTOR = 'article, [role="article"], li, p, h1, h2, h3, h4, h5, h6, blockquote, td, dd, figure';
 /** Blocks that can hold a whole article's worth of other content, so they are hidden only when short. */
@@ -714,6 +733,11 @@ export class Scanner {
   private coverKey: string | null = null;
   /** Threads whose main post the user showed: it is not hidden or covered again on them. */
   private revealedThreads = new Set<string>();
+  /**
+   * Where the comments are named (Facebook), whose main post rule takes any top post box: the post the person showed whole, with its thread and
+   * whether it sat in a dialog. Only it (or the post the site builds again in its place) stays shown, not another post box at the same address.
+   */
+  private shownMain: { el: Element; key: string; dialog: boolean } | null = null;
   /** The picture settings in full: what the content script resolved, the bare scanner's value for any left out. */
   private pics: Pictures;
 
@@ -991,6 +1015,7 @@ export class Scanner {
     this.enterShadows(root as Element | Document | DocumentFragment);
     if (this.pics.hideImages && root.nodeType === 1) {
       const el = root as Element;
+      this.liftCleanGif(el);
       if (el.matches('img, video')) this.checkMedia(el);
       el.querySelectorAll('img, video').forEach((m) => this.checkMedia(m));
       this.bgPictures(el).forEach((m) => this.checkMedia(m));
@@ -1286,7 +1311,8 @@ export class Scanner {
     const path = this.doc.location?.pathname ?? '';
     const re = this.opts.threadKey;
     if (!re) return path;
-    const m = re.exec(path);
+    // The query only for a pattern that names one (Facebook's permalink.php?story_fbid=): the other sites' keys stay the path's.
+    const m = re.exec(re.source.includes('\\?') ? path + (this.doc.location?.search ?? '') : path);
     return m ? (m[1] ?? m[0]) : null;
   }
 
@@ -1305,6 +1331,9 @@ export class Scanner {
     }
     let need = !c || c.key !== key || c.n > 1;
     if (!need && c!.n === 1) need = !c!.el!.isConnected || !c!.el!.matches(sel);
+    // Where the comments are named (Facebook), whose rule takes any top post box: the main post stays while it is there and still one (same
+    // thread), so a post box that lands later (a suggested post) does not end its cover.
+    if (!need && c!.n === 1 && this.opts.replies) return;
     if (!need && root) {
       const scope = root.nodeType === 1 || root.nodeType === 9 || root.nodeType === 11 ? (root as ParentNode) : null;
       if (scope) {
@@ -1446,9 +1475,12 @@ export class Scanner {
     // A post that holds its comments (Instagram): its picture covered for the game named next to it counts too, else the comments beside the
     // covered picture stay in view. Any picture of the post that is not in a comment (a carousel's slide is a card of its own).
     // Otherwise only where a picture-only post is covered by its picture.
+    // Where the comments are named (Facebook): only a picture-only post's cover, which needs a page about the game (near-game covers a picture
+    // beside the game's name on any page).
     const inside = this.opts.commentsInside;
     if (inside) {
-      for (const h of main.querySelectorAll('[data-gsb][data-gsb-why="media"], [data-gsb][data-gsb-why="near-game"]')) if (!h.closest(inside) && !this.revealed.has(h)) return true;
+      const whys = this.opts.replies ? '[data-gsb][data-gsb-why="media"]' : '[data-gsb][data-gsb-why="media"], [data-gsb][data-gsb-why="near-game"]';
+      for (const h of main.querySelectorAll(whys)) if (!h.closest(inside) && !this.revealed.has(h)) return true;
       return false;
     }
     if (!this.opts.mediaPostPictures) return false;
@@ -1470,11 +1502,19 @@ export class Scanner {
     if (main && sel) main.querySelectorAll(sel).forEach((p) => { if (!p.hasAttribute('data-gsb-under')) this.cover(p); });
   }
 
+  /** Did the person show this main post (`el`) on thread `key`? Per thread; where the comments are named (Facebook), per post (see shownMain). */
+  private mainShown(el: Element | null | undefined, key: string): boolean {
+    if (!this.opts.replies) return this.revealedThreads.has(key);
+    const s = this.shownMain;
+    if (!s || !el || s.key !== key) return false;
+    return el === s.el || (!s.el.isConnected && el === this.mc?.el && !!el.closest('[role="dialog"]') === s.dialog);
+  }
+
   /** The main post is hidden: cover what follows it in its list, up to the first boundary. */
   private startCover(): void {
     const key = this.threadKey();
     const cell = this.anchor?.cell;
-    if (!this.opts.containers || key === null || !cell || this.opts.hideReplies === false || this.revealedThreads.has(key)) return;
+    if (!this.opts.containers || key === null || !cell || this.opts.hideReplies === false || this.mainShown(this.mc?.el, key)) return;
     this.ensureAnchor();
     this.coverKey = key;
     // A post that holds its comments (Instagram): those are its replies, and what follows it (more posts) is not.
@@ -1497,7 +1537,7 @@ export class Scanner {
     const c = this.mc;
     const key = this.threadKey();
     const marked = this.coverKey !== null;
-    if (!c || key === null || c.n > 1 || this.opts.hideReplies === false || this.revealedThreads.has(key)) {
+    if (!c || key === null || c.n > 1 || this.opts.hideReplies === false || this.mainShown(c.el, key)) {
       // The comments under the cover were not judged while it stood: they are now.
       if (marked) this.uncover();
       return;
@@ -1662,7 +1702,8 @@ export class Scanner {
     }
     if (this.bioTried.get(row) === text.length) return;
     this.bioTried.set(row, text.length);
-    const found = this.matcher.inspect(text);
+    // A name or handle written as one word ("ZorblaxQuuxDiesInZZG9"): split at its capitals and digits, as a person would read it, then judged like the spaced name.
+    const found = this.matcher.inspect(this.matcher.splitLower(unglue(text)));
     // A story word beside a name that hides alone or the game's name, or such a name beside the game. A first name or a weak name never counts alone.
     const risky = found.spoil.has('story') ? found.strong.size > 0 || !!found.game : found.strong.size > 0 && !!found.game;
     if (!risky) return;
@@ -2153,6 +2194,40 @@ export class Scanner {
     }
   }
 
+  /**
+   * Discord puts a library GIF's words (the message's link, the video's label) or the video itself on the page after the first
+   * look, when only a plain picture (its loading placeholder) or a wordless video was there and was covered as one. When something
+   * arrives in a message, a picture cover in it is lifted if it holds a library GIF and every picture under it is now judged clean
+   * (avatars and emoji, too small for these rules, aside). Not a cover for words, not one in a message covered for its words: those
+   * stay. What was under the cover is then read again as usual.
+   */
+  private liftCleanGif(root: Element): void {
+    const item = discordMessageOf(root);
+    if (!item || this.wordsCovered(item)) return;
+    for (const c of [item, ...item.querySelectorAll('[data-gsb]')]) {
+      const why = this.whyOf.get(c);
+      if (!this.hidden.has(c) || (why !== 'near-game' && why !== 'media')) continue;
+      const media = c.matches('img, video') ? [c] : this.mediaIn(c);
+      // One with no size yet (not loaded, no width stated) may be big: it counts too. Discord's data: placeholder is judged clean
+      // through its GIF (placeholderFor), so it never holds a lift back.
+      const unsized = (m: Element) => m.matches('img, video') && !m.getAttribute('width') && !((m as HTMLImageElement).naturalWidth || (m as HTMLVideoElement).videoWidth);
+      // The cover can sit on the placeholder alone (near-game, read live), with the GIF beside it, outside the cover: the
+      // placeholder of a library GIF counts as that GIF.
+      const gif = (m: Element) => isLibraryGif(m, this.opts.gifs) || placeholderFor(m) !== null;
+      const pics = media.filter((m) => gif(m) || this.bigMedia(m, NAMED_CARD_MEDIA_PX) || this.isThumb(m) || unsized(m));
+      if (!pics.some(gif) || !pics.every((m) => this.mediaVerdict(m) === 'clean')) continue;
+      this.uncoverEl(c);
+      // All of it is read again, words too: text that came while it was covered was skipped then (as rejudge does).
+      const before = this.forceJoin;
+      this.forceJoin = true;
+      try {
+        this.scan(c);
+      } finally {
+        this.forceJoin = before;
+      }
+    }
+  }
+
   private gifVerdicts = new WeakMap<Element, { key: string; v: 'clean' | 'dirty' | 'none' }>();
 
   /**
@@ -2217,7 +2292,8 @@ export class Scanner {
     const sel = o.replies ?? o.threads;
     if (sel && card.matches(sel)) return true;
     // On a thread page only what follows the main post, before the first boundary: not the posts above it or the suggestions after.
-    const main = o.main ? this.mc?.el : null;
+    // Not where the comments are named (Facebook): those are its replies, and a post after the main post's block (a suggested one) is not one.
+    const main = o.main && !o.replies ? this.mc?.el : null;
     return !!main && card !== main && !main.contains(card) && this.inRun(card);
   }
 
@@ -2367,6 +2443,44 @@ export class Scanner {
     }
   }
 
+  /** A live stream's player (the adapter's keepClear): never covered, never paused or muted. Not on recorded media (keepClearNot). */
+  private keptClear(el: Element): boolean {
+    const sel = this.opts.keepClear;
+    if (!sel) return false;
+    try {
+      const root = el.closest(sel);
+      if (!root || this.opts.keepClearNot?.test(`${this.doc.location?.hostname ?? ''}${this.doc.location?.pathname ?? ''}${this.doc.location?.search ?? ''}`)) return false;
+      // A live stream has no end (duration Infinity); a recorded video has one. An offline channel page that replays a recorded broadcast is not live:
+      // it is judged like any video. Not known yet (NaN: nothing loaded, or still loading) counts as live, and is looked at again when it is.
+      const media = el instanceof HTMLMediaElement ? el : playerIn(root);
+      if (media) {
+        if (isRecorded(media.duration)) return false;
+        this.watchDuration(media);
+      }
+      return true;
+    } catch {
+      return false; // a selector the browser does not know: nothing is kept clear
+    }
+  }
+
+  private durationWatched = new WeakSet<Element>();
+  /** A player that turns out to be recorded (its duration becomes finite: a recorded broadcast loads, the page moves from a live channel to a video) is judged again. */
+  private watchDuration(media: HTMLMediaElement): void {
+    if (this.durationWatched.has(media)) return;
+    this.durationWatched.add(media);
+    // Tied to this scanner (a restart aborts it: a dead scanner must not cover or mute later). A finite reading is trusted only if it still holds a moment
+    // later: a live stream's player can pass through a finite duration while it starts or ends, and must not be covered for good by that.
+    const signal = this.playAbort.signal;
+    media.addEventListener('durationchange', () => {
+      if (!isRecorded(media.duration) || !media.isConnected) return;
+      window.setTimeout(() => {
+        if (signal.aborted || !isRecorded(media.duration) || !media.isConnected) return;
+        this.nearGame(media);
+        this.quiet();
+      }, 1200);
+    }, { signal });
+  }
+
   private waitingForLoad = new WeakSet<Element>();
   private quieted = new WeakSet<Element>();
 
@@ -2378,7 +2492,7 @@ export class Scanner {
     if (!this.pageContext || (!this.opts.pauseVideo && !this.opts.muteAudio)) return;
     const active = (this.doc.defaultView?.navigator as Navigator & { userActivation?: { hasBeenActive: boolean } } | undefined)?.userActivation?.hasBeenActive;
     this.doc.querySelectorAll('video, audio').forEach((m) => {
-      if (this.quieted.has(m)) return;
+      if (this.quieted.has(m) || this.keptClear(m)) return;
       const media = m as HTMLMediaElement;
       this.quieted.add(m);
       if (this.opts.muteAudio) {
@@ -2609,11 +2723,7 @@ export class Scanner {
    * over (hide drops the cover inside it).
    */
   private hideMedia(el: Element, res: MatchResult, why: Why, at?: Element): void {
-    try {
-      if (this.opts.keepClear && el.closest(this.opts.keepClear) && !this.opts.keepClearNot?.test(`${this.doc.location?.hostname ?? ''}${this.doc.location?.pathname ?? ''}${this.doc.location?.search ?? ''}`)) return;
-    } catch {
-      /* a selector the browser does not know: nothing is kept clear */
-    }
+    if (this.keptClear(el)) return;
     let box = this.paintBox(el);
     this.hide(box, res, why, at);
     // A player box that could not be covered (a whole page part, a shown or covered part): the video itself still is.
@@ -2643,6 +2753,12 @@ export class Scanner {
     }
     // A picture that has not loaded and states no width has size 0 here and is left alone: guessing would
     // blur every icon on the page. It is looked at again when it finishes loading (recheckOnLoad).
+    // A thin strip (a site's wordmark, a divider: Google's 285x16 logo) is the page's own chrome, not a picture of anything: icon height, whatever its width.
+    const h = Number(el.getAttribute('height')) || m.naturalHeight || 0;
+    // Judged by the stated or natural height, but a loaded and displayed picture that is shown tall is not a strip (a page's own height="1" markup
+    // scaled up by its CSS): a broken picture that renders short has not loaded, so its rendered height is not asked.
+    const shown = m.complete && m.naturalHeight > 0 && el.getClientRects().length > 0 ? m.height : 0;
+    if (h > 0 && h < 24 && !(shown >= 24)) return false;
     return (m.width || Number(el.getAttribute('width')) || m.naturalWidth || 0) >= floor;
   }
 
@@ -2657,7 +2773,8 @@ export class Scanner {
     const o = this.opts;
     // Reddit: the comment containers are named apart from the posts. X: on a status page every article but the main one is a reply.
     if (o.primaryPost && o.threads && post.matches(o.threads)) return true;
-    if (o.main && o.threadKey && o.threadKey.test(this.doc.location?.pathname ?? '') && !post.matches(o.main)) return true;
+    // (Not where the comments are named, Facebook: those go by the rule below, and a box around the main post is no reply.)
+    if (o.main && o.threadKey && !o.replies && o.threadKey.test(this.doc.location?.pathname ?? '') && !post.matches(o.main)) return true;
     // Facebook: a comment's block (it holds its replies, which a cover of its picture alone would leave in view), and a reply inside one
     // that is a post box of its own (an article with siblings).
     if (o.replies && (post.matches(o.replies) || post.parentElement?.closest(o.replies))) return true;
@@ -3120,8 +3237,9 @@ export class Scanner {
    */
   private rejudge(root: Node): void {
     const cards = this.opts.containers;
-    // Not on a thread page whose replies follow the main post (X; Reddit's post pages). Reddit's feeds and searches are judged again as before.
-    if (!cards || (this.opts.main && (!this.opts.threads || this.threadKey() !== null))) return;
+    // Not on a thread page whose replies follow the main post (X; Reddit's post pages). Reddit's feeds and searches are judged again as before,
+    // and so is all of Facebook (its comments are named, and its post pages kept this rule before they had a main post).
+    if (!cards || (!this.opts.replies && this.opts.main && (!this.opts.threads || this.threadKey() !== null))) return;
     const cover = (root.nodeType === 1 ? (root as Element) : root.parentElement)?.closest('[data-gsb]');
     if (!cover || cover === root || !this.hidden.has(cover) || cover.getAttribute('data-gsb-why') !== 'alone' || this.dialogOf.has(cover)) return;
     // The cover may sit on a part of the card (a Gmail row's subject and preview): the card is judged, the part is what comes off (B-037).
@@ -3446,9 +3564,9 @@ export class Scanner {
     if (this.pageLevel(el) && !this.cardFor(el)) return;
     if (this.opts.main) {
       if (el.closest('[data-gsb-under]')) return;
-      // A main post the user showed stays shown, even when the site builds the element again.
+      // A main post the user showed stays shown, even when the site builds the element again (Facebook: only that post, see shownMain).
       const k = el.matches(this.opts.main) ? this.threadKey() : null;
-      if (k !== null && this.revealedThreads.has(k)) return;
+      if (k !== null && this.mainShown(el, k)) return;
     }
     // The match sits in the replies' own area ("more replies" text): that area cannot stay uncovered.
     const inReplies = !!at && this.flagged && at !== el && !!this.replyUnder(el, at);
@@ -4082,7 +4200,10 @@ export class Scanner {
     }
     if (this.opts.main && this.mc?.el && (this.mc.el === el || (this.coverKey !== null && this.mc.el.contains(el)))) {
       const k = this.threadKey();
-      if (k !== null) this.revealedThreads.add(k);
+      // Facebook: only a press on the post's own cover marks it shown; a press on its picture shows the comments, and a later cover of the
+      // post itself (its words, once "See more" opens them) still counts.
+      if (k !== null && !this.opts.replies) this.revealedThreads.add(k);
+      else if (k !== null && this.mc.el === el) this.shownMain = { el, key: k, dialog: !!el.closest('[role="dialog"]') };
       this.uncover();
     }
   }
@@ -4107,6 +4228,7 @@ export class Scanner {
     // The play listeners of this run end with it (a restart would otherwise stack another set on each video).
     this.playAbort.abort();
     this.playAbort = new AbortController();
+    this.durationWatched = new WeakSet();
     this.playListening = false;
     this.listenedRoots = new WeakSet();
     this.repauses = new WeakMap();
@@ -4123,6 +4245,7 @@ export class Scanner {
     this.mc = null;
     this.anchor = null;
     this.revealedThreads.clear();
+    this.shownMain = null;
     this.sizes?.disconnect();
     if (this.refitOn) this.doc.removeEventListener('scroll', this.onScroll, { capture: true });
     this.refitOn = false;

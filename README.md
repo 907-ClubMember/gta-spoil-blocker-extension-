@@ -37,6 +37,16 @@ Chrome may show a reminder about developer-mode extensions when it starts; you c
 1. Open `chrome://extensions` and press **Remove** on the extension's card.
 2. If you want, delete the folder you unzipped it into.
 
+## Screenshots
+
+![A covered thread, before and after](docs/images/1-thread-sidebyside.png)
+
+![A picture post with only the picture covered](docs/images/2-picture-sidebyside.png)
+
+![The extension's popup](docs/images/3-popup.png)
+
+![The settings page](docs/images/4-settings.png)
+
 ## What it does
 
 - Works on YouTube (including live chat), Reddit (old and new), X, Bluesky, Facebook, Instagram, Twitch, Kick, Discord (web), Steam (store and community), Google, Bing, DuckDuckGo and Gmail, with basic support for other websites.
@@ -52,6 +62,8 @@ Chrome may show a reminder about developer-mode extensions when it starts; you c
 ## Limitations
 
 It reads words, not meaning. A comment that tells the story in plain words, with no name or spoiler word in it, can still get through. It also cannot see inside a picture, only the words around it. This means that if someone posts a spoiler image on a page that has no content related to GTA 6, it can get through. I would use this as a final layer of spoiler protection after blocking keywords on sites and leaving GTA 6-related communities. Because this is a Chrome extension, it only has support on desktop Chrome; mobile social media apps such as Reddit and X could still be a risk. It is meant for after you have taken all other precautions.
+
+About 85% correct labeling in testing; on GTA 6's wiki so far it has missed no spoilers and leans toward hiding more than needed.
 
 ## Privacy
 

@@ -2,7 +2,7 @@ import '../../ui/style.css';
 import { el, restoreFocus, rememberFocus, twoPress } from '../../ui/dom';
 import { DONATE_URL, MAKER_URL, RELEASES_URL } from '../../donate';
 import { HIDDEN_GROUP_TEXT, PROTECT_TEXT, TEXT } from '../../text';
-import { DEFAULT_SETTINGS, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, patternChoices, patternLabel, saveSettings, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, addPattern, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, pagePattern, patternChoices, patternLabel, removePattern, samePattern, saveSettings, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
 import { cleanTally, describeTally, type HiddenTally } from '../../hidden';
 import { builtinList, chooseList, loadMeta, savedList } from '../../list/store';
 import { staleNotice } from '../../list/stale';
@@ -15,6 +15,8 @@ const app = document.getElementById('app')!;
 let moreOpen = false;
 let updateOpen = false;
 let countTimer = 0;
+/** Just turned off on this page: Undo takes back `added` (nothing, if the same entry was already there). */
+let pageOff: { url: string; added?: SitePattern } | undefined;
 
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -166,7 +168,17 @@ async function render() {
   }
 
   // This site: one click for the usual choice, the narrower ones folded away.
-  if (host && (safeEntries.length || siteOffKeys.length)) {
+  // Done and Undo only while the entry this popup added is still saved; anything else forgets it.
+  const done = pageOff?.url === tabUrl && pageOff.added && s.allowSites.some((p) => samePattern(p, pageOff!.added!)) ? pageOff : (pageOff = undefined);
+  const choices = host ? patternChoices(tabUrl).slice(0, 4) : [];
+  if (done) {
+    const undo = el('button', { class: 'wide' }, TEXT.pageOffUndo);
+    undo.addEventListener('click', async () => {
+      pageOff = undefined;
+      await update({ allowSites: removePattern((await loadSettings()).allowSites, done.added) });
+    });
+    body.push(el('hr'), el('p', { class: 'help page-off-done', role: 'status' }, TEXT.pageOffDone), undo);
+  } else if (host && (safeEntries.length || siteOffKeys.length)) {
     const resume = el('button', { class: 'wide' }, TEXT.safeResume);
     resume.addEventListener('click', () => update({
       allowSites: s.allowSites.filter((p) => !safeEntries.includes(p)),
@@ -180,18 +192,30 @@ async function render() {
     resume.addEventListener('click', () => update({ sites: { ...s.sites, [key]: { ...s.sites[key], off: false } } }));
     const note = el('p', { class: 'help group-off' }, TEXT.sitePictures.groupOff.replace('{group}', TEXT.sitePictures.groups[offGroup]));
     body.push(el('hr'), note, resume);
-  } else if (host) {
-    const choices = patternChoices(tabUrl).slice(0, 4);
+  } else if (host && choices.length) {
+    // (No choices: an address too long to read. Nothing is offered then.)
     const whole = choices[choices.length - 1]!;
     const off = el('button', { class: 'wide' }, TEXT.offOnSite(patternLabel(whole)));
-    off.addEventListener('click', () => update({ allowSites: [...s.allowSites, whole] }));
+    off.addEventListener('click', async () => update({ allowSites: addPattern((await loadSettings()).allowSites, whole).list }));
     body.push(el('hr'), off);
-    const narrower = choices.slice(0, -1);
+    // Exactly this page, query included (one video, not every video), so the parts below need not be opened for it.
+    const thisPage = pagePattern(tabUrl);
+    if (thisPage) {
+      const offPage = el('button', { class: 'wide' }, TEXT.offOnPage);
+      offPage.addEventListener('click', async () => {
+        offPage.disabled = true; // a second quick click would find the entry saved and lose what Undo takes back
+        const { list, added } = addPattern((await loadSettings()).allowSites, thisPage);
+        pageOff = { url: tabUrl, added: added ?? (pageOff?.url === tabUrl ? pageOff.added : undefined) };
+        await update({ allowSites: list });
+      });
+      body.push(offPage);
+    }
+    const narrower = choices.slice(1, -1);
     if (narrower.length) {
       const pick = el('div', { class: 'mark-safe', role: 'group', ariaLabel: TEXT.moreChoices });
       for (const p of narrower) {
         const b = el('button', { title: patternLabel(p) }, el('b', {}, TEXT.siteChoice[p.kind]), el('code', {}, patternLabel(p)));
-        b.addEventListener('click', () => update({ allowSites: [...s.allowSites, p] }));
+        b.addEventListener('click', async () => update({ allowSites: addPattern((await loadSettings()).allowSites, p).list }));
         pick.append(b);
       }
       const more = el('details', { open: moreOpen }, el('summary', {}, TEXT.moreChoices), pick);

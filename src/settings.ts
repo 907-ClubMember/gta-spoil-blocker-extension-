@@ -859,7 +859,31 @@ export function patternChoices(url: string): SitePattern[] {
   return [{ kind: 'page', host: a.host, path: pagePathOf(a) }, ...parts.reverse(), { kind: 'site', host: a.host, path: '' }];
 }
 
-const patternKey = (p: SitePattern) => `${p.kind}|${p.host}|${p.path.toLowerCase()}`;
+/** The path part ignoring letter case, the query exactly (video ids are case sensitive). */
+const pathKey = (path: string) => {
+  const q = path.indexOf('?');
+  return q < 0 ? path.toLowerCase() : path.slice(0, q).toLowerCase() + path.slice(q);
+};
+const patternKey = (p: SitePattern) => `${p.kind}|${p.host}|${pathKey(p.path)}`;
+
+/** The same entry: same kind and host, the path ignoring letter case, the query exactly. */
+export const samePattern = (a: SitePattern, b: SitePattern) => patternKey(a) === patternKey(b);
+
+/** The entry for exactly this page: address and query, without the #hash or tracking bits. Undefined for a non-web address. */
+export function pagePattern(url: string): SitePattern | undefined {
+  const a = parseAddress(url);
+  return a ? { kind: 'page', host: a.host, path: pagePathOf(a) } : undefined;
+}
+
+/** Adds an entry unless the same one is there; `added` is what Undo should take back (nothing when it was already there). */
+export function addPattern(list: SitePattern[], p: SitePattern): { list: SitePattern[]; added?: SitePattern } {
+  return list.some((x) => patternKey(x) === patternKey(p)) ? { list } : { list: [...list, p], added: p };
+}
+
+/** Takes back one entry that addPattern added; nothing else. */
+export function removePattern(list: SitePattern[], added: SitePattern | undefined): SitePattern[] {
+  return added ? list.filter((x) => patternKey(x) !== patternKey(added)) : list;
+}
 
 /** Saved lists: old plain-text hosts become whole-site entries; damaged entries are dropped. */
 function patternList(v: unknown): SitePattern[] {
@@ -909,7 +933,7 @@ export function coveringEntry(patterns: SitePattern[], p: SitePattern): SitePatt
       const pp = p.path.toLowerCase().split('?')[0]!.replace(/\/$/, '');
       return pp === vp || pp.startsWith(vp + '/');
     }
-    return p.kind === 'page' && p.host === v.host && p.path.toLowerCase() === v.path.toLowerCase();
+    return p.kind === 'page' && p.host === v.host && pathKey(p.path) === pathKey(v.path);
   });
 }
 

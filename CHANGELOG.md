@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.1.4
+
+### Highlights
+
+- Turn off on this page: one click in the popup, with Undo.
+- Twitch and Kick live streams stay clear and keep their sound. Replays and clips are judged like any video.
+- X: a spoiler written into a name or handle, even run together, is covered. Plain names stay.
+- Facebook: comments under a covered post are covered with it.
+- Discord: Klipy GIFs that give nothing away no longer stay covered.
+
+### New
+
+- **Turn off on this page.** The popup has a Turn off on this page button. It lets through only the page you are on, and an Undo button brings it back.
+
+### Changes
+
+- **Examples in Settings.** The examples now use a made-up game, so they give nothing away.
+
+### Fixes
+
+#### Facebook
+- On a post's own page, in a group and in an opened post, the comments are covered along with a covered post, including comments that load later.
+
+#### X
+- A spoiler hidden in a display name or handle is covered, even when the words are run together with no spaces. A plain name with nothing about the game stays visible.
+
+#### Discord
+- A Klipy GIF that gives nothing away is shown once it has loaded, instead of staying covered. Videos and uploads next to it are still judged.
+
+#### Google
+- The Google logo is no longer covered.
+
+#### Twitch/Kick
+- A live player stays clear and is never muted or paused. On an offline channel, replays and clips are judged like any other video.
+
 ## 0.1.3
 
 ### Highlights
