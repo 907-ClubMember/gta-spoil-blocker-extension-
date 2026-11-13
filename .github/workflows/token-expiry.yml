@@ -1,0 +1,37 @@
+name: Quarantine token expiry
+# The quarantine token (90 days) is what moves a held issue out of public view. Weekly, this checks the expiry date kept in the
+# QUARANTINE_TOKEN_EXPIRES repo variable and opens one issue when 14 days or fewer are left (.github/scripts/token-expiry.ts).
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  check:
+    # Inert anywhere but the public repo (this file also sits in the private repo's .github).
+    if: github.repository == '907-ClubMember/gta-spoil-blocker-extension-'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Check the expiry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUARANTINE_TOKEN_EXPIRES: ${{ vars.QUARANTINE_TOKEN_EXPIRES }}
+        run: |
+          set +e
+          line=$(npx tsx .github/scripts/token-expiry.ts)
+          code=$?
+          set -e
+          echo "$line"
+          [ "$code" = "2" ] || exit $code
+          gh label create intake-token --color B60205 --force >/dev/null
+          if [ "$(gh issue list --label intake-token --state open --json number --jq 'length')" = "0" ]; then
+            gh issue create --label intake-token --title "Quarantine token: renew it" --body "$line. Make a new fine-grained token (Issues read/write on this repo and the quarantine repo only, 90 days) and save it as the QUARANTINE_TOKEN secret; update the QUARANTINE_TOKEN_EXPIRES variable."
+          fi

@@ -85,9 +85,18 @@ export function parseAccount(input: string): string | null {
   return accountKey(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `https://${v.replace(/^\/+/, '')}`);
 }
 
-/** Every account key to hide, from the built-in list (when it is on) and the person's own additions. */
-export function accountKeys(s: { spoilerAccounts: boolean; blockedAccounts: string[] }): Set<string> {
-  const keys = new Set<string>(s.spoilerAccounts ? SPOILER_ACCOUNTS.flatMap((a) => a.keys) : []);
+/** The site a host belongs to, as account keys spell it ("www.youtube.com" -> "youtube.com"), or null for other sites. */
+export function siteOf(host: string): string | null {
+  return HOSTS[host.toLowerCase().replace(/^www\./, '')] ?? null;
+}
+
+/**
+ * Every account key to hide: the built-in list (when it is on) less the accounts never to hide, then the person's own
+ * additions. Those win over never hide: taking one off "my accounts to hide" is how to show it again.
+ */
+export function accountKeys(s: { spoilerAccounts: boolean; blockedAccounts: string[]; allowAccounts?: string[] }): Set<string> {
+  const allowed = allowedAccounts(s);
+  const keys = new Set<string>(s.spoilerAccounts ? SPOILER_ACCOUNTS.flatMap((a) => a.keys).filter((k) => !allowed.has(k)) : []);
   for (const v of s.blockedAccounts) {
     const k = parseAccount(v);
     if (k) keys.add(k);
@@ -95,10 +104,39 @@ export function accountKeys(s: { spoilerAccounts: boolean; blockedAccounts: stri
   return keys;
 }
 
-/** Words that name a built-in account, hidden like one of the person's own words while the list is on. */
-export function accountWords(s: { spoilerAccounts: boolean }): string[] {
-  return s.spoilerAccounts ? SPOILER_ACCOUNTS.flatMap((a) => a.words) : [];
+/**
+ * Words that name a built-in account, hidden like one of the person's own words while the list is on. On a site where the
+ * account is allowed its name is left out (it sits beside every one of its posts there); other sites still hide it.
+ */
+export function accountWords(s: { spoilerAccounts: boolean; allowAccounts?: string[] }, host = ''): string[] {
+  if (!s.spoilerAccounts) return [];
+  const allowed = allowedAccounts(s);
+  const site = siteOf(host);
+  return SPOILER_ACCOUNTS.filter((a) => !(site && a.keys.some((k) => keySite(k) === site && allowed.has(k)))).flatMap((a) => a.words);
 }
+
+const keySite = (key: string) => key.split('/')[0]!;
+
+/** The accounts never to hide, as keys. A built-in account allowed on a site is allowed by all its pages there (handle and channel id). */
+function allowedAccounts(s: { allowAccounts?: string[] }): Set<string> {
+  const allowed = new Set((s.allowAccounts ?? []).map((v) => parseAccount(v)).filter((k): k is string => !!k));
+  for (const a of SPOILER_ACCOUNTS) {
+    const sites = new Set(a.keys.filter((k) => allowed.has(k)).map(keySite));
+    for (const k of a.keys) if (sites.has(keySite(k))) allowed.add(k);
+  }
+  return allowed;
+}
+
+/**
+ * Links that can be an account's page, as Chrome menu patterns: the right-click "Never hide" item for accounts shows only on
+ * these. Loose on purpose (x.com/home matches); the click itself checks the link with `accountKey`.
+ */
+export const ACCOUNT_LINK_PATTERNS: readonly string[] = [
+  '*://*.youtube.com/@*', '*://*.youtube.com/channel/*',
+  '*://*.x.com/*', '*://*.twitter.com/*',
+  '*://*.reddit.com/user/*', '*://*.reddit.com/u/*',
+  '*://*.tiktok.com/@*', '*://*.instagram.com/*', '*://*.twitch.tv/*', '*://*.kick.com/*',
+];
 
 /** Quick check before parsing: only links to these sites can be account pages. */
 export const ACCOUNT_HOST = /\b(youtube\.com|twitter\.com|x\.com|reddit\.com|tiktok\.com|instagram\.com|twitch\.tv|kick\.com)(:\d+)?\//i;

@@ -2,11 +2,18 @@ import { SPOILER_ACCOUNTS, parseAccount } from '../../accounts';
 import '../../ui/style.css';
 import { choiceRow, el, preview, rememberFocus, restoreFocus, twoPress } from '../../ui/dom';
 import { DONATE_URL, MAKER_URL, WIKI_URL } from '../../donate';
-import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT, BLACKOUT_TEXT } from '../../text';
-import { DEFAULT_SETTINGS, PAGE_PARTS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, saveSettings, timeOf, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
+import { installKindOf, showUpdateSteps } from '../../versions';
+import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, REACTION_GIF_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT, BLACKOUT_TEXT } from '../../text';
+import { DEFAULT_SETTINGS, PAGE_PARTS, WORDS_ONLY_TOPICS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
 import { activeList, describeResult, loadMeta } from '../../list/store';
 import { CATEGORIES, KINDS, KIND_GROUP, KIND_GROUPS } from '../../types';
 import { countByCategory } from '../../list';
+import { DEBUG_WHY } from '../../debug-flag';
+import { allowDropsGameName } from '../../matcher';
+import { shapeTerms } from '../../levels';
+import { NEVER_HIDE_REFUSED } from '../../never-hide';
+import { SITE_OFF, attachExamples } from './examples';
+import { ANCHOR_TAB, isSettingAnchor, type SettingAnchor } from '../../reason-settings';
 
 const app = document.getElementById('app')!;
 let s: Settings;
@@ -38,6 +45,8 @@ let resetDone = false;
 // change here starts from them. A save of this page's own arrives equal to what it already has, and needs no drawing.
 try {
   chrome.storage.onChanged.addListener((changes, area) => {
+    // A right-click refused the game's name: its notice shows at once.
+    if (area === 'local' && changes[NEVER_HIDE_REFUSED]?.newValue && s) return void render();
     if (area !== 'local' || !changes.settings?.newValue) return;
     const next = normalizeSettings(changes.settings.newValue);
     if (s && JSON.stringify(next) !== JSON.stringify(s)) {
@@ -64,15 +73,68 @@ async function commitProtect(patch: Partial<Settings>) {
   await saveSettings(s);
 }
 
+// Each place a cover's "Change this" can open: the card whose title is this one (data-setting), see src/reason-settings.ts.
+const ANCHOR_TITLES: Record<string, SettingAnchor> = {
+  [TEXT.protect.name]: 'protect',
+  [TEXT.picturesTitle]: 'pictures',
+  [TEXT.repliesTitle]: 'replies',
+  [TEXT.categories.name]: 'topics',
+  [TEXT.partsTitle]: 'parts',
+  [TEXT.spoilerAccounts.name]: 'accounts',
+  [TEXT.labelTitle]: 'label',
+  [TEXT.hintWords.name]: 'hint-words',
+  [TEXT.customWords.name]: 'words',
+};
+
 function section(title: string, help: string, ...body: Node[]) {
-  return el('section', { class: 'card' }, el('h2', {}, title), el('p', { class: 'help' }, help), ...body);
+  const card = el('section', { class: 'card' }, el('h2', {}, title), el('p', { class: 'help' }, help), ...body);
+  const anchor = ANCHOR_TITLES[title];
+  if (anchor) card.setAttribute('data-setting', anchor);
+  return card;
 }
 
-function radioGroup<T extends string>(name: string, label: string, current: T, options: Record<T, { name: string; help: string }>, onPick: (v: T) => void) {
+/** Opens the tab the setting is on, scrolls to its card, lights it for a moment and puts the keyboard in it. */
+let jumpTimer = 0;
+async function jumpTo(anchor: SettingAnchor) {
+  // The finer controls of "how much to protect" (how careful, rare names, trailers) are in a fold: open for this jump.
+  const wasFolded = anchor === 'protect' && !opened.has(TEXT.protect.fine);
+  if (wasFolded) { opened.add(TEXT.protect.fine); closed.delete(TEXT.protect.fine); }
+  if (tab !== ANCHOR_TAB[anchor] || wasFolded) {
+    tab = ANCHOR_TAB[anchor];
+    await render();
+  }
+  const card = document.querySelector<HTMLElement>(`[data-setting="${anchor}"]`);
+  if (!card) return;
+  card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  card.classList.add('jump');
+  window.clearTimeout(jumpTimer);
+  jumpTimer = window.setTimeout(() => card.classList.remove('jump'), 2500);
+  card.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true });
+}
+
+/** Where the cover that sent us here wants to land: a key in storage (set by the background) or #setting=<name> in the address. */
+async function takeJump() {
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get('setting');
+  let anchor: unknown = fromHash;
+  try {
+    const { optionsAnchor } = await chrome.storage.local.get('optionsAnchor');
+    if (optionsAnchor !== undefined) {
+      anchor = optionsAnchor;
+      await chrome.storage.local.remove('optionsAnchor');
+    }
+  } catch {
+    /* no storage events here: the address alone */
+  }
+  if (isSettingAnchor(anchor)) await jumpTo(anchor);
+}
+
+function radioGroup<T extends string>(name: string, label: string, current: T, options: Record<T, { name: string; help: string }>, onPick: (v: T) => void, sample?: (k: T) => HTMLElement) {
   return [el('fieldset', {}, el('legend', { class: 'sr' }, label), ...(Object.keys(options) as T[]).map((k) => {
-    const input = el('input', { type: 'radio', name, checked: k === current });
+    const input = el('input', { type: 'radio', name, value: k, checked: k === current });
     input.addEventListener('change', () => onPick(k));
-    return choiceRow(input, options[k].name, options[k].help);
+    const row = choiceRow(input, options[k].name, options[k].help);
+    if (sample) row.append(sample(k));
+    return row;
   }))];
 }
 
@@ -81,7 +143,7 @@ function wordList(
   values: string[],
   clean: (v: string) => string,
   onChange: (next: string[]) => void,
-  opts: { maxLength?: number; badText?: string } = {},
+  opts: { maxLength?: number; badText?: string; refuse?: (v: string) => string | null; ignored?: (v: string) => string | null; notice?: HTMLElement } = {},
 ) {
   const input = el('input', { type: 'text', placeholder: info.placeholder, ariaLabel: info.name, maxLength: opts.maxLength ?? 80, value: drafts.get(info.name) ?? '' });
   const add = el('button', {}, 'Add');
@@ -89,7 +151,9 @@ function wordList(
   input.addEventListener('input', () => drafts.set(info.name, input.value));
   const submit = () => {
     const v = clean(input.value);
+    const refused = v ? opts.refuse?.(v) : null;
     if (!v) note.textContent = input.value.trim() ? (opts.badText ?? 'That does not look right. Check it and try again.') : '';
+    else if (refused) note.textContent = refused;
     else if (values.some((x) => x.toLowerCase() === v.toLowerCase())) note.textContent = 'That one is already in the list.';
     else {
       drafts.delete(info.name);
@@ -109,10 +173,12 @@ function wordList(
     ...values.map((v) => {
       const x = el('button', { title: `Remove ${v}`, ariaLabel: `Remove ${v}` }, '×');
       x.addEventListener('click', () => onChange(values.filter((y) => y !== v)));
-      return el('span', { class: 'chip' }, v, x);
+      const why = opts.ignored?.(v);
+      return el('span', { class: 'chip' }, v, ...(why ? [el('span', { class: 'help' }, ` (${why})`)] : []), x);
     }),
   );
-  return section(info.name, info.help, el('div', { class: 'add' }, input, add), note, chips);
+  const notice = opts.notice ? [opts.notice] : [];
+  return section(info.name, info.help, ...notice, el('div', { class: 'add' }, input, add), note, chips);
 }
 
 const KIND_ORDER = { site: 0, prefix: 1, page: 2 } as const;
@@ -195,11 +261,37 @@ function siteList(info: { name: string; help: string; placeholder: string; examp
   return section(info.name, info.help, examples, el('div', { class: 'add' }, input, add), note, choices, rows);
 }
 
+/** How long the options page mentions a refused right-click "Never hide this word". */
+const REFUSAL_SHOWN_MS = 24 * 60 * 60 * 1000;
+
+/** When the right-click "Never hide this word" last refused the game's name, or null. */
+async function lastRefusal(): Promise<number | null> {
+  try {
+    const at = ((await chrome.storage.local.get(NEVER_HIDE_REFUSED))[NEVER_HIDE_REFUSED] as { at?: unknown } | undefined)?.at;
+    return typeof at === 'number' ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The right-click refusal, with a button that clears it. */
+function refusalNotice(): HTMLElement {
+  const x = el('button', { title: TEXT.allowWords.dismiss, ariaLabel: TEXT.allowWords.dismiss }, '×');
+  x.addEventListener('click', () => void chrome.storage.local.remove(NEVER_HIDE_REFUSED).catch(() => {}).then(render));
+  return el('p', { class: 'msg help' }, TEXT.allowWords.refusedNotice, ' ', x);
+}
+
 async function render() {
   const y = window.scrollY;
   const focus = rememberFocus(app);
   s = await loadSettings();
-  const [list, meta] = await Promise.all([activeList(), loadMeta()]);
+  const [list, meta, refusedAt] = await Promise.all([activeList(), loadMeta(), lastRefusal()]);
+  // A folder loaded by hand (installed from GitHub): updates are manual (the popup says when one is out).
+  let installType: string | undefined;
+  try { installType = (await chrome.management?.getSelf?.())?.installType; } catch { /* the store text: no line */ }
+  const fromGithub = showUpdateSteps(installKindOf(installType));
+  // The names as the matcher sees them with these settings: a name shaped into the game's marker skips a word never to hide too.
+  const shaped = shapeTerms(list.terms, s);
   const counts = countByCategory(list.terms);
 
   // Two presses, not a browser pop-up: one stray click must not lose someone's settings.
@@ -221,20 +313,21 @@ async function render() {
   media.addEventListener('change', () => commit({ hideMediaPosts: media.checked }));
 
   // These two go by a few words in a post, not by names on the list, so a count of list names would mislead.
-  const WORDS_ONLY = new Set<string>(['leaks', 'trailers']);
   const catRows = CATEGORIES.map((c) => {
     const pick = el('select', { ariaLabel: CATEGORY_TEXT[c].name });
-    for (const m of Object.keys(CATEGORY_MODE_TEXT) as CategoryMode[]) pick.append(el('option', { value: m, selected: m === s.categoryModes[c] }, CATEGORY_MODE_TEXT[m]));
+    pick.dataset.example = `topic.${c}`;
+    // Leak and trailer words count the same under Hide and the middle choice, so those two offer only Hide and Show.
+    for (const m of Object.keys(CATEGORY_MODE_TEXT) as CategoryMode[]) if (m !== 'mention' || !WORDS_ONLY_TOPICS.has(c)) pick.append(el('option', { value: m, selected: m === s.categoryModes[c] }, CATEGORY_MODE_TEXT[m]));
     pick.addEventListener('change', () => commit({ categoryModes: { ...s.categoryModes, [c]: pick.value as CategoryMode } }));
     const n = counts[c] ?? 0;
-    return el('label', { class: 'kind' }, el('span', {}, el('b', {}, CATEGORY_TEXT[c].name), el('span', { class: 'help' }, WORDS_ONLY.has(c) ? CATEGORY_TEXT[c].help : `${CATEGORY_TEXT[c].help} (${n} ${n === 1 ? 'entry' : 'entries'} in the list)`)), pick);
+    return el('label', { class: 'kind' }, el('span', {}, el('b', {}, CATEGORY_TEXT[c].name), el('span', { class: 'help' }, WORDS_ONLY_TOPICS.has(c) ? CATEGORY_TEXT[c].help : `${CATEGORY_TEXT[c].help} (${n} ${n === 1 ? 'entry' : 'entries'} in the list)`)), pick);
   });
 
   // What to protect: a preset button fills the grid; changing any row switches to Custom.
   const protectButtons = el('div', { class: 'seg', role: 'group', ariaLabel: TEXT.protect.name });
   for (const k of PROTECTS) {
     const on = s.protect === k;
-    const b = el('button', { class: on ? 'on' : '', title: PROTECT_TEXT[k].help }, PROTECT_TEXT[k].name);
+    const b = el('button', { class: on ? 'on' : '', title: PROTECT_TEXT[k].help, value: k }, PROTECT_TEXT[k].name);
     b.setAttribute('aria-pressed', String(on));
     b.addEventListener('click', async () => {
       if (on) return;
@@ -246,6 +339,7 @@ async function render() {
   const kindGrid = KIND_GROUPS.map((g) =>
     el('div', { class: 'kinds' }, el('h3', {}, KIND_GROUP_TEXT[g]), ...KINDS.filter((k) => KIND_GROUP[k] === g).map((k) => {
       const pick = el('select', { ariaLabel: KIND_TEXT[k].name });
+      pick.dataset.example = `kind.${k}`;
       for (const m of ['always', 'mention', 'off'] as const) pick.append(el('option', { value: m, selected: m === s.kindModes[k] }, KIND_MODE_TEXT[m]));
       pick.addEventListener('change', async () => {
         await commitProtect({ protect: 'custom', kindModes: { ...s.kindModes, [k]: pick.value as CategoryMode } });
@@ -263,11 +357,14 @@ async function render() {
   const covers = el('div', { class: 'covers' }, ...coverColumn(TEXT.coversHidden, 'always'), ...coverColumn(TEXT.coversMention, 'mention'), ...coverColumn(TEXT.coversShown, 'off'));
 
   const ordinary = el('select', { ariaLabel: ORDINARY_TEXT.name });
+  ordinary.dataset.example = 'ordinary';
   for (const m of ['light', 'medium', 'strict'] as const) ordinary.append(el('option', { value: m, selected: m === s.strictness }, ORDINARY_TEXT.options[m]));
   ordinary.addEventListener('change', () => commit({ strictness: ordinary.value as Settings['strictness'] }).then(render));
   const ordinaryRow = el('div', { class: 'kinds' }, el('h3', {}, 'Names that look like everyday words'), el('label', { class: 'kind' }, el('span', {}, el('b', {}, ORDINARY_TEXT.name), el('span', { class: 'help' }, ORDINARY_TEXT.help)), ordinary));
   const rare = el('select', { ariaLabel: RARE_TEXT.name });
-  for (const m of ['always', 'mention', 'off'] as const) rare.append(el('option', { value: m, selected: m === s.rareNames }, KIND_MODE_TEXT[m]));
+  rare.dataset.example = 'rare';
+  // Unusual names keep their own rule (the post or the page), so their middle choice says so.
+  for (const m of ['always', 'mention', 'off'] as const) rare.append(el('option', { value: m, selected: m === s.rareNames }, m === 'mention' ? RARE_TEXT.mention : KIND_MODE_TEXT[m]));
   rare.addEventListener('change', () => commitProtect({ rareNames: rare.value as CategoryMode }).then(render));
   const rareRow = el('div', { class: 'kinds' }, el('h3', {}, RARE_TEXT.heading), el('label', { class: 'kind' }, el('span', {}, el('b', {}, RARE_TEXT.name), el('span', { class: 'help' }, RARE_TEXT.help)), rare));
 
@@ -281,7 +378,7 @@ async function render() {
     el('label', { class: 'look' }, el('span', { class: 'look-head' }, input, name), preview(look), el('span', { class: 'help' }, help));
   const PRESET_LOOK = { casual: 'light', careful: 'medium', blackout: 'gone' } as const;
   const presetCards = (Object.keys(PRESET_LOOK) as (keyof typeof PRESET_LOOK)[]).map((k) => {
-    const input = el('input', { type: 'radio', name: 'preset', checked: s.preset === k });
+    const input = el('input', { type: 'radio', name: 'preset', value: k, checked: s.preset === k });
     input.addEventListener('change', async () => {
       s = applyPreset(await loadSettings(), k);
       await saveSettings(s);
@@ -296,7 +393,7 @@ async function render() {
   };
   const HIDE_LOOK = { blur: 'medium', collapse: 'line', remove: 'gone' } as const;
   const hideCards = (Object.keys(HIDE_LOOK) as (keyof typeof HIDE_LOOK)[]).map((k) => {
-    const input = el('input', { type: 'radio', name: 'hide', checked: s.hideMode === k });
+    const input = el('input', { type: 'radio', name: 'hide', value: k, checked: s.hideMode === k });
     input.addEventListener('change', () => commit({ hideMode: k }).then(render));
     return lookCard(input, HIDE_MODE_TEXT[k].name, HIDE_MODE_TEXT[k].help, HIDE_LOOK[k]);
   });
@@ -325,26 +422,73 @@ async function render() {
       void addSite();
     }
   });
-  const siteRows = Object.entries(s.sites).map(([host, o]) => {
-    const set = (patch: SiteOverride) => commit({ sites: { ...s.sites, [host]: { ...o, ...patch } } }).then(render);
+  // One card for a site, or for a group of sites (the same controls, saved to settings.siteGroups).
+  const overrideCard = (o: SiteOverride, title: string, key: string, save: (next: SiteOverride) => Promise<void>, del?: HTMLElement, group = false) => {
+    const set = (patch: SiteOverride) => save({ ...o, ...patch }).then(render);
     const strict = el('select', {}, el('option', { value: '' }, 'Same as everywhere'), ...(['light', 'medium', 'strict'] as const).map((k) => el('option', { value: k, selected: o.strictness === k }, STRICTNESS_TEXT[k].name)));
+    strict.dataset.example = 'siteStrict';
     strict.addEventListener('change', () => set({ strictness: (strict.value || undefined) as SiteOverride['strictness'] }));
     const style = el('select', {}, el('option', { value: '' }, 'Same as everywhere'), ...(['blur', 'collapse', 'remove'] as const).map((k) => el('option', { value: k, selected: o.hideMode === k }, HIDE_MODE_TEXT[k].name)));
+    style.dataset.example = 'siteHide';
     style.addEventListener('change', () => set({ hideMode: (style.value || undefined) as SiteOverride['hideMode'] }));
-    const off = el('input', { type: 'checkbox', checked: o.off === true });
-    off.addEventListener('change', () => set({ off: off.checked || undefined }));
+    // Off here: same as everywhere, never hide anything here, or (a site only) hide here even when its group is switched off.
+    // The values are the siteOff example's choices: 'on' is "never hide" (off: true), 'off' is off: false.
+    const offNow = o.off === true ? 'on' : o.off === false ? 'off' : '';
+    const off = el('select', {}, el('option', { value: '' }, 'Same as everywhere'), el('option', { value: 'on', selected: offNow === 'on' }, SITE_OFF),
+      ...(group ? [] : [el('option', { value: 'off', selected: offNow === 'off' }, TEXT.sitePictures.siteOffNo)]));
+    off.dataset.example = 'siteOff';
+    off.addEventListener('change', () => set({ off: off.value === 'on' ? true : off.value === 'off' ? false : undefined }));
     const parts = PAGE_PARTS.map((p) => {
       const c = el('input', { type: 'checkbox', checked: o.parts?.[p] ?? s.parts[p] });
       c.addEventListener('change', () => set({ parts: { ...o.parts, [p]: c.checked } }));
       return el('label', { class: 'chip' }, c, ` ${PART_TEXT[p].name}`);
     });
+    // Pictures: each picture setting can differ here; "Same as everywhere" (no value) follows the Pictures and comments tab.
+    const onOff: [string, string][] = [['on', TEXT.sitePictures.on], ['off', TEXT.sitePictures.off]];
+    const named = <K extends string>(names: Record<K, { name: string }>) => (Object.keys(names) as K[]).map((k) => [k, names[k].name] as [string, string]);
+    const pictureRows = ([
+      ['hideImages', 'siteHideImages', TEXT.hideImages.name, onOff],
+      ['hideMediaPosts', 'siteHideMediaPosts', TEXT.hideMediaPosts.name, onOff],
+      ['mediaNearGame', 'siteMediaNear', TEXT.mediaNearGame, named(MEDIA_NEAR_TEXT)],
+      ['reactionGifs', 'siteReactionGifs', TEXT.reactionGifs, named(REACTION_GIF_TEXT)],
+      ['replyGifs', 'siteReplyGifs', TEXT.replyGifs, named(REPLY_GIF_TEXT)],
+      ['replyPhotos', 'siteReplyPhotos', TEXT.replyPhotos, named(REPLY_PHOTO_TEXT)],
+      ['thumbsOnly', 'siteThumbsOnly', TEXT.thumbsOnly.name, onOff],
+    ] as const).map(([field, id, label, choices]) => {
+      const now = o[field];
+      const value = typeof now === 'boolean' ? (now ? 'on' : 'off') : now ?? '';
+      const pick = el('select', {}, el('option', { value: '' }, TEXT.sitePictures.same), ...choices.map(([v, text]) => el('option', { value: v, selected: v === value }, text)));
+      pick.dataset.example = id;
+      pick.addEventListener('change', () => {
+        const v = pick.value;
+        void set({ [field]: v === '' ? undefined : v === 'on' ? true : v === 'off' ? false : v });
+      });
+      return el('div', { class: 'site-pic' }, el('label', {}, `${label}: `, pick));
+    });
+    const picKey = `pictures:${key}`;
+    const pictures = el('details', { class: 'site-pictures', open: opened.has(picKey), ariaLabel: TEXT.sitePictures.group }, el('summary', {}, TEXT.sitePictures.group),
+      el('p', { class: 'help' }, TEXT.sitePictures.groupHelp), ...(s.blackoutDays ? [el('p', { class: 'help' }, TEXT.sitePictures.blackout)] : []), ...pictureRows);
+    pictures.addEventListener('toggle', () => (pictures.open ? opened.add(picKey) : opened.delete(picKey)));
+    const card = el('div', { class: 'card' });
+    card.append(el('h3', {}, title), el('label', {}, 'Spoiler blocking here: ', off), el('br'), el('label', {}, 'How careful: ', strict), el('br'), el('label', {}, 'What hiding looks like: ', style), el('div', { class: 'chips' }, ...parts), pictures, ...(del ? [del] : []));
+    return card;
+  };
+  const siteRows = Object.entries(s.sites).map(([host, o]) => {
     const del = el('button', { title: `Remove ${host}`, ariaLabel: `Remove ${host}` }, 'Remove');
     del.addEventListener('click', async () => {
       const { [host]: _gone, ...rest } = s.sites;
       await commit({ sites: rest });
       await render();
     });
-    return el('div', { class: 'card' }, el('h3', {}, host), choiceRow(off, 'Never hide anything here', 'Spoiler blocking is switched off on this site.'), el('label', {}, 'How careful: ', strict), el('br'), el('label', {}, 'What hiding looks like: ', style), el('div', { class: 'chips' }, ...parts), del);
+    const card = overrideCard(o, host, host, (next) => commit({ sites: { ...s.sites, [host]: next } }), del);
+    card.dataset.site = host;
+    return card;
+  });
+  // The groups come first: a site's own card below beats its group.
+  const groupRows = SITE_GROUPS.map((g) => {
+    const card = overrideCard(s.siteGroups[g] ?? {}, TEXT.sitePictures.groups[g], `group:${g}`, (next) => commit({ siteGroups: { ...s.siteGroups, [g]: next } }), undefined, true);
+    card.dataset.siteGroup = g;
+    return card;
   });
 
   // Off keeps the times for later. On with no time set yet just opens the two boxes.
@@ -380,7 +524,8 @@ async function render() {
   const pauseNote = s.pausedUntil > Date.now() ? [el('p', { class: 'help' }, `Paused until ${new Date(s.pausedUntil).toLocaleString()}.`)] : [];
 
   const blackout = el('select', { ariaLabel: BLACKOUT_TEXT.name });
-  for (const n of [0, 3, 7, 14] as const) blackout.append(el('option', { value: String(n), selected: n === s.blackoutDays }, BLACKOUT_TEXT.options[n]));
+  blackout.dataset.example = 'blackout';
+  for (const n of [0, 3, 7, 14, -1] as const) blackout.append(el('option', { value: String(n), selected: n === s.blackoutDays }, BLACKOUT_TEXT.options[n]));
   blackout.addEventListener('change', () => commit({ blackoutDays: Number(blackout.value) as Settings['blackoutDays'] }).then(render));
   const zonePick = el('select', { ariaLabel: BLACKOUT_TEXT.zone }, el('option', { value: '' }, BLACKOUT_TEXT.zoneYours), ...Intl.supportedValuesOf('timeZone').map((z) => el('option', { value: z, selected: z === s.blackoutZone }, z.replaceAll('_', ' '))));
   zonePick.addEventListener('change', () => commit({ blackoutZone: zonePick.value }).then(render));
@@ -403,7 +548,8 @@ async function render() {
     }
     await render();
   });
-  const when = meta.checkedAt ? `Last checked ${new Date(meta.checkedAt).toLocaleString()}.` : 'Not checked yet.';
+  const checked = meta.checkedAt ? `Last checked ${new Date(meta.checkedAt).toLocaleString()}.` : 'Not checked yet.';
+  const when = meta.failedAt && meta.failure ? `${checked} ${TEXT.updateFailed(new Date(meta.failedAt).toLocaleString(), meta.failure)}` : checked;
 
   const panelId = (name: string) => `panel-${TABS.indexOf(name as (typeof TABS)[number])}`;
   const tabId = (name: string) => `tab-${TABS.indexOf(name as (typeof TABS)[number])}`;
@@ -439,10 +585,11 @@ async function render() {
     el('p', { class: 'help' }, TEXT.settingsIntro),
     tabs,
     panel('Basics', false,
+      ...(fromGithub ? [el('p', { class: 'help install-note' }, TEXT.installedFromGithub)] : []),
       el('section', { class: 'card' }, el('label', { class: 'row master' }, el('span', {}, el('b', {}, TEXT.masterToggle), el('span', { class: 'help' }, blockingStatus(s, Date.now()).text)), master)),
       el('section', { class: 'card' }, choiceRow(timer, TEXT.timer.name, TEXT.timer.help), ...timerBoxes, ...pauseNote),
       section(TEXT.protect.name, TEXT.protect.help, protectButtons, el('p', {}, PROTECT_TEXT[s.protect].help), covers,
-        fold(TEXT.protect.fine, s.protect === 'custom', ...kindGrid, ordinaryRow, rareRow, check(s.allowTrailers, TEXT.allowTrailers.name, TEXT.allowTrailers.help, (v) => ({ allowTrailers: v })))),
+        fold(TEXT.protect.fine, s.protect === 'custom', ...kindGrid, ordinaryRow, rareRow, check(s.allowTrailers, TEXT.allowTrailers.name, TEXT.allowTrailers.help, (v) => ({ allowTrailers: v })), check(s.allowStores, TEXT.allowStores.name, TEXT.allowStores.help, (v) => ({ allowStores: v })))),
       el('section', { class: 'card support' }, el('div', {}, el('h2', {}, TEXT.donate.name), el('p', { class: 'help' }, TEXT.donate.help)), el('div', { class: 'support-links' }, link(DONATE_URL, TEXT.donate.link), link(WIKI_URL, TEXT.donate.site), link(MAKER_URL, TEXT.donate.own))),
       section(TEXT.looksTitle, TEXT.looksHelp, looks(TEXT.looksTitle, presetCards), ...(s.preset === 'custom' ? [el('p', { class: 'help' }, `${PRESET_TEXT.custom.name}: ${PRESET_TEXT.custom.help}`)] : []),
         fold(TEXT.looksOwn, false, looks(TEXT.looksOwn, hideCards))),
@@ -450,32 +597,47 @@ async function render() {
       section(TEXT.resetName, TEXT.resetHelp, resetBtn, el('p', { class: 'msg help', role: 'status' }, resetDone ? TEXT.resetDone : '')),
     ),
     panel('Pictures and comments', true,
-      section(TEXT.picturesTitle, TEXT.picturesHelp, choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), choiceRow(media, TEXT.hideMediaPosts.name, TEXT.hideMediaPosts.help), check(s.thumbsOnly, TEXT.thumbsOnly.name, TEXT.thumbsOnly.help, (v) => ({ thumbsOnly: v })), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', TEXT.mediaNearGame, s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v }))),
+      section(TEXT.picturesTitle, TEXT.picturesHelp, choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), choiceRow(media, TEXT.hideMediaPosts.name, TEXT.hideMediaPosts.help), check(s.thumbsOnly, TEXT.thumbsOnly.name, TEXT.thumbsOnly.help, (v) => ({ thumbsOnly: v })), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', TEXT.mediaNearGame, s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v })), el('p', {}, el('b', {}, TEXT.reactionGifs)), ...radioGroup('reactionGifs', TEXT.reactionGifs, s.reactionGifs, REACTION_GIF_TEXT, (v) => commit({ reactionGifs: v })), el('p', {}, el('b', {}, TEXT.replyGifs)), ...radioGroup('replyGifs', TEXT.replyGifs, s.replyGifs, REPLY_GIF_TEXT, (v) => commit({ replyGifs: v })), el('p', {}, el('b', {}, TEXT.replyPhotos)), ...radioGroup('replyPhotos', TEXT.replyPhotos, s.replyPhotos, REPLY_PHOTO_TEXT, (v) => commit({ replyPhotos: v }))),
       section(TEXT.repliesTitle, TEXT.repliesHelp, ...radioGroup('replies', TEXT.repliesTitle, (s.hideReplies ? 'all' : 'own') as 'all' | 'own', REPLIES_TEXT, (v) => commit({ hideReplies: v === 'all' }))),
       section(TEXT.soundTitle, TEXT.soundHelp, check(s.pauseVideo, TEXT.pauseVideo.name, TEXT.pauseVideo.help, (v) => ({ pauseVideo: v })), check(s.muteAudio, TEXT.muteAudio.name, TEXT.muteAudio.help, (v) => ({ muteAudio: v }))),
     ),
     panel('My lists', true,
       wordList(TEXT.customWords, s.customWords, (v) => v.trim(), (next) => commit({ customWords: next }).then(render)),
-      wordList(TEXT.allowWords, s.allowWords, (v) => v.trim(), (next) => commit({ allowWords: next }).then(render)),
+      // The game's own name is refused here as on the right-click menu; one saved before is shown as ignored (the matcher skips it).
+      wordList(TEXT.allowWords, s.allowWords, (v) => v.trim(), (next) => commit({ allowWords: next }).then(render), {
+        refuse: (v) => (allowDropsGameName(v, list.terms) ? TEXT.allowWords.refused : null),
+        ignored: (v) => (allowDropsGameName(v, shaped) ? TEXT.allowWords.ignored : null),
+        notice: refusedAt !== null && Date.now() - refusedAt < REFUSAL_SHOWN_MS ? refusalNotice() : undefined,
+      }),
       section(TEXT.spoilerAccounts.name, TEXT.spoilerAccounts.help, check(s.spoilerAccounts, `Hide ${SPOILER_ACCOUNTS.map((a) => a.name).join(', ')}`, TEXT.spoilerAccounts.check, (v) => ({ spoilerAccounts: v }))),
       // A bare @name could be any site's: asking for the link beats quietly saving a YouTube handle for someone's X account.
       wordList(TEXT.blockedAccounts, s.blockedAccounts, (v) => (v.trim().startsWith('@') ? '' : parseAccount(v) ?? ''), (next) => commit({ blockedAccounts: next }).then(render), { badText: TEXT.blockedAccounts.bad }),
+      wordList(TEXT.allowAccounts, s.allowAccounts, (v) => (v.trim().startsWith('@') ? '' : parseAccount(v) ?? ''), (next) => commit({ allowAccounts: next }).then(render), { badText: TEXT.allowAccounts.bad }),
       siteList(TEXT.allowSites, s.allowSites, (next) => commit({ allowSites: next }).then(render)),
       siteList(TEXT.blockSites, s.blockSites, (next) => commit({ blockSites: next }).then(render)),
     ),
     panel('Advanced', true,
       section(TEXT.updates.name, TEXT.updates.help, el('div', { class: 'add' }, sel), upBtn, msg, el('p', { class: 'help' }, `List version ${list.v}. ${when} ${TEXT.updates.privacyNote}`)),
       section(TEXT.categories.name, TEXT.categories.help, ...catRows),
-      section(TEXT.blurTitle, TEXT.blurHelp, ...radioGroup('blur', TEXT.blurTitle, s.blur, BLUR_TEXT, (v) => commit({ blur: v }))),
-      section(TEXT.labelTitle, TEXT.labelHelp, check(s.showReason, TEXT.showReason.name, TEXT.showReason.help, (v) => ({ showReason: v })), el('p', {}, el('b', {}, TEXT.revealTitle)), ...radioGroup('reveal', TEXT.revealTitle, s.revealMode, REVEAL_TEXT, (v) => commit({ revealMode: v })), check(s.rememberReveals, TEXT.rememberReveals.name, TEXT.rememberReveals.help, (v) => ({ rememberReveals: v }))),
+      section(TEXT.blurTitle, TEXT.blurHelp, ...radioGroup('blur', TEXT.blurTitle, s.blur, BLUR_TEXT, (v) => commit({ blur: v }), (k) => el('span', { class: `pv-cover pv-${k}` }, el('span', { class: 'pv-text' }, TEXT.previewPost)))),
+      section(TEXT.labelTitle, TEXT.labelHelp, check(s.showReason, TEXT.showReason.name, TEXT.showReason.help, (v) => ({ showReason: v })), ...(DEBUG_WHY ? [check(s.debugWhy, 'Debug: show why (shows spoilers)', 'Hover a cover to see the rule and the matched words. This reveals the spoiler list. Dev builds only.', (v) => ({ debugWhy: v }))] : []), el('p', {}, el('b', {}, TEXT.revealTitle)), ...radioGroup('reveal', TEXT.revealTitle, s.revealMode, REVEAL_TEXT, (v) => commit({ revealMode: v })), check(s.rememberReveals, TEXT.rememberReveals.name, TEXT.rememberReveals.help, (v) => ({ rememberReveals: v }))),
       section(TEXT.partsTitle, TEXT.partsHelp, ...partRows),
-      section(TEXT.sitesTitle, TEXT.sitesHelp, ...siteRows, el('div', { class: 'add' }, siteBox, siteAdd), siteNote),
+      section(TEXT.sitesTitle, TEXT.sitesHelp, el('h3', {}, TEXT.sitePictures.groups.title), el('p', { class: 'help' }, TEXT.sitePictures.groups.help), ...groupRows, ...siteRows, el('div', { class: 'add' }, siteBox, siteAdd), siteNote),
       wordList(TEXT.hintWords, s.hintWords, (v) => v.trim(), (next) => commit({ hintWords: next }).then(render), { maxLength: 40 }),
       section(TEXT.toolbarTitle, TEXT.toolbarHelp, check(s.showBadge, TEXT.showBadge.name, TEXT.showBadge.help, (v) => ({ showBadge: v }))),
     ),
   );
+  attachExamples(app, s);
   window.scrollTo(0, y);
   restoreFocus(app, focus);
 }
 
-void render();
+void render().then(takeJump);
+try {
+  // The options page is already open when a cover asks: the same jump, at once.
+  chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.optionsAnchor?.newValue !== undefined) void takeJump(); });
+} catch {
+  /* no storage events here */
+}
+window.addEventListener('hashchange', () => void takeJump());
+

@@ -1,61 +1,52 @@
 # Spoiler Blocker for GTA 6
-![logo of the extension](https://raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/refs/heads/main/Artboard%201.PNG.png)
 
-There was an extension a long time ago for blocking spoilers for StarWars episode 7 when it came out. (Before we knew it as bad). I was wondering how to replicate that without having to read gta.wiki and block them myself. Which would require someone to know or spoil the plot for themselves.
+Install: Chrome Web Store: under review; until then install from GitHub below
 
-This extension was created to try and solve that, I have given claude a set of rules then flagged by hand things from GTA 4+DLC + GTA 5 + RDR2, this was iterated several times over with my spot checking and giving corrections on how to flag what text in gta.wiki. This hopefully will then correctly label content from GTA.wiki as it is added.
+There was an extension a long time ago for blocking spoilers for Star Wars: Episode 7 when it came out (before we knew it was bad). I was wondering how to replicate that without having to read the plot and block things myself, which would require spoiling myself in order to add the spoilers.
 
-## AI notice
+This extension watches the community-run GTA wiki, labels new names and details as they are added, and publishes the result as one list that the extension downloads. The contents are fed through and labeled by Claude, tuned by me providing human labeling on a large number of items and giving it rules. In its current state it has around 85% correct labeling of unknown data in the GTA wiki during testing. It blocks spoilers in your browser, based on the settings you choose.
 
-If it wasn't obvious this heavily uses AI. The only things not AI is the artwork made by my wonderful girlfriend and this README as I hate reading AI slop someone half-assed. This was made from the claude Pro sub vibecoded on my laptop.
+## What it does
+- Works on YouTube (including live chat), Reddit (old and new), X, Bluesky, Facebook, Instagram, Twitch, Kick, Discord (web), Steam (store and community), Google, Bing, DuckDuckGo and Gmail, with basic support for other websites.
+- Hides the whole post or comment.
+- Hides everything from a known spoiler account, and you can add your own.
+- You choose how much to protect: only the big moments, the main story (the default), or everything to be extra safe.
+- Official trailers from the publisher and major game news channels play as normal, if you want or are blocked
+- Reaction GIFs in replies are shown if they are judged likely to be safe; reply photos stay covered unless you choose to show them, as they cannot be confirmed safe with a high level of confidence.
+- Hover over a cover to see why it is hidden. The label never shows the spoiler itself, only the reason it was hidden.
+- Safe and strict site lists, your own words to hide, and words never to hide.
+- Works alongside common extensions such as ad blockers and dark-mode tools.
 
-## How it works
-
-1. Scrapes the gta.wiki for GTA 6 content then labels the content based off its rules, this is then stored encoded in "spoilers.json" on this repo
-2. The extension then gets updates from "spoilers.json" as new content is labeled
-3. Then using the settings in your instance of the extension content is flagged based on its label 
-
-
-## Supported sites
-Youtube + live chat, old/new Reddit, X, Bluesky, Facebook, Insta, Twitch, Kick, Discord (web version), Steam, Google, Bing, and most normal websites with generic support
-
-## Features
-
-- **How much to hide:** customizable level of hiding based off pre-sets can be customized.  
-- **Where:** Can whitelist / blacklist sites, hide media / audio on sites as it plays
-- **Your own words:** add custom keywords to blacklist
-- **Known spoilers** currently hardcoded to block "Shirrako" other accounts can be added to your instance of the extension 
+## Limitations
+It reads words, not meaning. A comment that tells the story in plain words, with no name or spoiler word in it, can still get through. It also cannot see inside a picture, only the words around it. This means that if someone posts a spoiler image on a page that has no content related to GTA 6, it can get through. I would use this as a final layer of spoiler protection after blocking keywords on sites and leaving GTA 6-related communities. Because this is a Chrome extension, it only has support on desktop Chrome; mobile social media apps such as Reddit and X could still be a risk. It is meant for after you have taken all other precautions.
 
 ## Privacy
+I am not interested in your data. Pages are read only inside your browser. No account, no tracking, no analytics. The only download is the spoiler list itself. The code is open source on GitHub.
 
-Pages are checked only inside your browser. I get no information from you installing this extension and no changes occur to your browser besides the blocking. If someone does try to sell me on injecting code to sell residential proxies I'll put them on blast like the GOAT [Ajay](https://sponsor.ajay.app/emails) Full details: [privacy policy](https://gist.github.com/907-ClubMember/d4d83238a67f3b81a3cd80b687c30c24).
+## Browser support
+Currently only in the Chrome Web Store. The zip can be taken from GitHub and loaded in other Chromium browsers. [This is untested as the browser has only been tested in chrome]
 
-## Install
-# TODO
-Put chrome webstore link here 
+## Install or update from GitHub (developer mode)
 
-## Thanks
+Use this if you want the extension before the store has it, or you do not use the store.
 
-The list is built from the work of the volunteer editors of [GTA Wiki](https://gta.wiki), 
-(text under CC BY-SA). If this saved your playthrough, consider
-[tipping GTA Wiki](https://ko-fi.com/gtawiki) and [helping with the wiki](https://gta.wiki/w/GTA_Wiki:How_to_Help). You can also tip [me](https://ko-fi.com/ai_slop_fund) if you wanna help me make more projects or to show your thanks.
+**First time**
+1. Download the latest zip from the [releases page](https://github.com/907-ClubMember/gta-spoil-blocker-extension-/releases/latest) (the file ending in -chrome.zip, not "Source code") and unzip it into a folder you will keep (for example "Documents/spoiler-blocker").
+2. Open chrome://extensions and turn on **Developer mode** (top right).
+3. Press **Load unpacked** and pick the unzipped folder.
 
-Not affiliated with, endorsed by or connected to Rockstar Games, Take-Two Interactive, gta.wiki. Grand Theft Auto and GTA are trademarks
-of Take-Two Interactive.
+**Updating**
+1. Download the latest zip from the [releases page](https://github.com/907-ClubMember/gta-spoil-blocker-extension-/releases/latest): the file ending in -chrome.zip, not "Source code".
+2. Unzip it **over the same folder you loaded before**: pick that folder as the destination, or copy the files into it and choose Replace. An unpacked extension gets its identity from its folder path, so a new folder is a new extension and your settings would be lost.
+3. Open chrome://extensions and press **Reload** on the extension's card, then refresh the pages you have open.
 
----
+Always unzip a new version over the same folder: your settings stay as long as you use the same folder.
 
-### Open source
+When a newer version is out and you installed this way, the popup shows these steps under "How to update". The extension never downloads the new version itself: it only opens the releases page when you press the link.
 
-All code here is public so anyone can look / tweak it 
+## AI notice
+Made heavily with AI, with hand-checking against earlier games to correct classification issues and push the labeling in the right direction. The artwork is human-made, taking a very very grueling 30 seconds to make in illustrator.
 
-- **what the extension downloads:** one file, the spoiler list, from
-  `raw.githubusercontent.com/907-ClubMember/gta-spoil-blocker-extension-/main/lists/dist/spoilers.json`. It holds text related to spoilers. They are
-  base64-encoded so that opening the file doesn't spoil you; `src/list/index.ts` shows how it is read. Nothing else is fetched or sent; the address is in
-  `src/list/store.ts`.
-- **Permissions** (in `wxt.config.ts`): `storage` (your settings and the list), `alarms` (the update timer), `contextMenus`
-  (the right-click "hide this"), `activeTab` (pause on the current site), all pages (to check them for spoilers), and
-  `raw.githubusercontent.com` (the list download). Details in [PRIVACY.md](PRIVACY.md).
-- **Same code as the store:** each store version has a tag here (for example `v0.1.0`). Build that tag and compare it with
-  the store version.
+Thanks to the volunteer editors of GTA Wiki, whose work the list is built on (text under CC BY-SA). If this saved your playthrough, consider donating or contributing to them.
 
+Not affiliated with, endorsed by or connected to Rockstar Games, Take-Two Interactive or gta.wiki. Grand Theft Auto and GTA are trademarks of Take-Two Interactive.

@@ -21,7 +21,8 @@ export function shapeTerms(terms: Term[], s: ShapeSettings): Term[] {
   const out: Term[] = [];
   for (const t of terms) {
     // Shown in the trailers, so the name itself may show. It still marks a post as about the game, so a plot post beside it hides.
-    if (s.allowTrailers && t.tr) {
+    // A real person (Term.p) is never made a marker: its name alone would then mark every page it is on as about the game.
+    if (s.allowTrailers && t.tr && !t.p) {
       out.push({ ...t, s: 'context' });
       continue;
     }
@@ -29,9 +30,8 @@ export function shapeTerms(terms: Term[], s: ShapeSettings): Term[] {
     const kind = kindOf(t);
     // The raise lifts a name under a preset, and in Custom while its kind's row is untouched.
     const raised = !!t.l && level >= threshold && (s.protect !== 'custom' || s.kindModes[kind] === presetRow[kind]);
-    if (t.r) {
-      // Its category is switched off: the name never hides, but it still marks a post as about the game (label review 2026-11-05;
-      // without this the matcher dropped it with the category).
+    if (t.r && !t.p) {
+      // Its category is switched off: the name never hides, but it still marks a post as about the game (without this the matcher dropped it with the category).
       if (s.categoryModes[t.c] === 'off') {
         out.push({ ...t, s: 'context' });
         continue;
@@ -52,12 +52,14 @@ export function shapeTerms(terms: Term[], s: ShapeSettings): Term[] {
     let mode = s.kindModes[kind];
     if (mode === 'off' && (s.protect !== 'custom' || mode === presetRow[kind]) && level >= threshold) mode = 'always';
     if (mode === 'off') {
-      if (level === 0 || KIND_BASE_LEVEL[kind] === 0 || t.s === 'context') out.push(t.s === 'context' ? t : { ...t, s: 'context' });
+      if (!t.p && (level === 0 || KIND_BASE_LEVEL[kind] === 0 || t.s === 'context')) out.push(t.s === 'context' ? t : { ...t, s: 'context' });
       continue;
     }
     // The older per-category switch still applies on top.
-    const weakened = (mode === 'mention' || s.categoryModes[t.c] === 'mention') && t.s === 'strong';
-    out.push(weakened ? { ...t, s: 'weak' } : t);
+    // Made to wait for a page about the game: the page itself, not the post or thread beside it (Term.pg). A name the list
+    // already carries as weak waits the same way; a marker stays a marker.
+    const weakened = (mode === 'mention' || s.categoryModes[t.c] === 'mention') && t.s !== 'context';
+    out.push(weakened ? { ...t, s: 'weak', pg: true } : t);
   }
   return out;
 }

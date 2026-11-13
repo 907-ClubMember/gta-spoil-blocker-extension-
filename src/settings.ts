@@ -6,6 +6,12 @@ import { CATEGORIES, KINDS, KIND_BASE_LEVEL, KIND_CATEGORY, type Category, type 
 /** blur: covered, click to show. collapse: gone, with a small line in its place. remove: gone, no trace. */
 export type HideMode = 'blur' | 'collapse' | 'remove';
 export type MediaNearGame = 'off' | 'page' | 'post';
+/** Reaction GIFs from a GIF library: 'label' judges them by their label, 'picture' covers them like any picture. */
+export type ReactionGifs = 'label' | 'picture';
+/** Pictures posted as a reply: 'show' leaves a bare one alone, 'cover' treats it like any picture. */
+export type ReplyPictures = 'show' | 'cover';
+/** The defaults for GIFs and photos posted as a reply, in one place. */
+export const REPLY_PICTURE_DEFAULTS = { replyGifs: 'show', replyPhotos: 'cover' } as const;
 export type UpdateEvery = 'hourly' | '6h' | 'daily' | 'manual';
 /** How strongly a cover blurs. 'solid' replaces the content with a plain box. */
 export type BlurStrength = 'light' | 'medium' | 'heavy' | 'solid';
@@ -44,7 +50,19 @@ export interface SiteOverride {
   hideMode?: HideMode;
   blur?: BlurStrength;
   parts?: Partial<Record<PagePart, boolean>>;
+  // Pictures on this site (SITE_PICTURE_FIELDS): each one in place of the global setting of the same name.
+  hideImages?: boolean;
+  hideMediaPosts?: boolean;
+  mediaNearGame?: MediaNearGame;
+  reactionGifs?: ReactionGifs;
+  replyGifs?: ReplyPictures;
+  replyPhotos?: ReplyPictures;
+  thumbsOnly?: boolean;
 }
+
+/** The picture settings a site can have its own value for. */
+export const SITE_PICTURE_FIELDS = ['hideImages', 'hideMediaPosts', 'mediaNearGame', 'reactionGifs', 'replyGifs', 'replyPhotos', 'thumbsOnly'] as const;
+export type SitePictureField = (typeof SITE_PICTURE_FIELDS)[number];
 
 export interface Settings {
   enabled: boolean;
@@ -58,6 +76,12 @@ export interface Settings {
    * 'post' also beside a caption, link or post that names it on any page.
    */
   mediaNearGame: MediaNearGame;
+  /** How reaction GIFs from a GIF library are treated. 'label': by their label. 'picture': like any other picture. */
+  reactionGifs: ReactionGifs;
+  /** GIFs (library GIFs, X GIF video, .gif pictures) that are all a reply says. */
+  replyGifs: ReplyPictures;
+  /** Other pictures (uploads, photos) that are all a reply says. */
+  replyPhotos: ReplyPictures;
   /** When a comment is hidden, hide every reply nested under it too. Off: each reply is judged on its own. */
   hideReplies: boolean;
   categories: Record<Category, boolean>;
@@ -67,6 +91,11 @@ export interface Settings {
   /** The person's own accounts to hide: links to an account's page, or a YouTube @handle. */
   blockedAccounts: string[];
   allowWords: string[];
+  /**
+   * Accounts never to hide (account keys, as in `blockedAccounts`, so each one is for one site). They are left out of the built-in
+   * account rule only: their posts are still checked word by word like anyone's, and `blockedAccounts` wins over this list.
+   */
+  allowAccounts: string[];
   /** Words that make a nearby name count as being about the game. Starts as the built-in list. */
   hintWords: string[];
   /** Safe places (a whole site, part of a site, or one page) where nothing is ever hidden. */
@@ -80,6 +109,8 @@ export interface Settings {
   blur: BlurStrength;
   /** The cover says what kind of thing it hides (character, place, mission, story), never the word. */
   showReason: boolean;
+  /** Opt-in debug: label tooltips and a page attribute show the rule and the matched terms. Shows spoilers. */
+  debugWhy: boolean;
   revealMode: RevealMode;
   /** A revealed item stays revealed on this page after a rescan. */
   rememberReveals: boolean;
@@ -101,6 +132,8 @@ export interface Settings {
   parts: Record<PagePart, boolean>;
   /** Per-site overrides, keyed by host ("youtube.com"). */
   sites: Record<string, SiteOverride>;
+  /** Overrides for a group of sites (groupsFor). A site's own entry beats its groups, field by field. */
+  siteGroups: Partial<Record<SiteGroup, SiteOverride>>;
   pauseVideo: boolean;
   muteAudio: boolean;
   /** Blur only thumbnails and pictures, never text. */
@@ -113,14 +146,16 @@ export interface Settings {
   startDate: string;
   /** The start and end times are switched off and kept for later. */
   timerOff: boolean;
-  /** Launch-week blackout: hide every post naming the game for this many days from release (0 = off, the default). */
-  blackoutDays: 0 | 3 | 7 | 14;
+  /** Launch-week blackout: hide every post naming the game for this many days from release (0 = off, the default; -1 = no end). */
+  blackoutDays: -1 | 0 | 3 | 7 | 14;
   /** When the blackout starts (YYYY-MM-DDTHH:MM). Empty: the release day from the list. */
   blackoutFrom: string;
   /** The time zone blackoutFrom is in. Empty: the browser's own. */
   blackoutZone: string;
   /** Things shown in official trailers are never hidden (needs list entries marked as trailer content). */
   allowTrailers: boolean;
+  /** The big official stores and the publisher's own site and accounts are let through (src/adapters/official.ts): their pages, search results and cards that link to them. */
+  allowStores: boolean;
   /** "I have finished the story": nothing is hidden. */
   storyFinished: boolean;
   showBadge: boolean;
@@ -132,13 +167,17 @@ export const DEFAULT_SETTINGS: Settings = {
   hideMode: 'blur',
   hideImages: true,
   hideMediaPosts: true,
-  mediaNearGame: 'page',
+  mediaNearGame: 'post',
+  reactionGifs: 'label',
+  replyGifs: REPLY_PICTURE_DEFAULTS.replyGifs,
+  replyPhotos: REPLY_PICTURE_DEFAULTS.replyPhotos,
   hideReplies: true,
-  categories: Object.fromEntries(CATEGORIES.map((c) => [c, true])) as Record<Category, boolean>,
+  categories: Object.fromEntries(CATEGORIES.map((c) => [c, c !== 'trailers'])) as Record<Category, boolean>,
   customWords: [],
   spoilerAccounts: true,
   blockedAccounts: [],
   allowWords: [],
+  allowAccounts: [],
   hintWords: DEFAULT_HINTS,
   allowSites: [],
   blockSites: [],
@@ -146,15 +185,18 @@ export const DEFAULT_SETTINGS: Settings = {
   preset: 'careful',
   blur: 'medium',
   showReason: true,
+  debugWhy: false,
   revealMode: 'click',
   rememberReveals: false,
-  categoryModes: Object.fromEntries(CATEGORIES.map((c) => [c, 'always'])) as Record<Category, CategoryMode>,
+  // Official trailer content shows by default: the trailers category is off and trailer names are let through.
+  categoryModes: Object.fromEntries(CATEGORIES.map((c) => [c, c === 'trailers' ? 'off' : 'always'])) as Record<Category, CategoryMode>,
   protect: 'story',
   customBase: 'story',
   kindModes: presetKindModes('story'),
   rareNames: 'mention',
   parts: Object.fromEntries(PAGE_PARTS.map((p) => [p, true])) as Record<PagePart, boolean>,
   sites: {},
+  siteGroups: {},
   pauseVideo: true,
   muteAudio: true,
   thumbsOnly: false,
@@ -165,7 +207,8 @@ export const DEFAULT_SETTINGS: Settings = {
   blackoutDays: 0,
   blackoutFrom: '',
   blackoutZone: '',
-  allowTrailers: false,
+  allowTrailers: true,
+  allowStores: true,
   storyFinished: false,
   showBadge: true,
 };
@@ -191,8 +234,8 @@ export function normalizeSettings(raw: unknown): Settings {
   const categoryModes = Object.fromEntries(
     CATEGORIES.map((c) => [
       c,
-      // Older saved settings only had a switch per category: on is "always", off is "off".
-      oneOf(modeIn[c], ['off', 'mention', 'always'] as const, cats[c] === false ? 'off' : 'always'),
+      // Older saved settings only had a switch per category: on is "always", off is "off". Nothing saved: the default.
+      wordsOnly(c, oneOf(modeIn[c], ['off', 'mention', 'always'] as const, cats[c] === false ? 'off' : cats[c] === true ? 'always' : DEFAULT_SETTINGS.categoryModes[c])),
     ]),
   ) as Record<Category, CategoryMode>;
   const { protect, kindModes, customBase } = normalizeProtect(r, categoryModes);
@@ -203,6 +246,12 @@ export function normalizeSettings(raw: unknown): Settings {
     const host = normalizeHost(k);
     if (host && v && typeof v === 'object') sites[host] = normalizeSite(v as Record<string, unknown>);
   }
+  const groupsIn = (r.siteGroups && typeof r.siteGroups === 'object' && !Array.isArray(r.siteGroups) ? r.siteGroups : {}) as Record<string, unknown>;
+  const siteGroups: Partial<Record<SiteGroup, SiteOverride>> = {};
+  for (const g of SITE_GROUPS) {
+    const v = groupsIn[g];
+    if (v && typeof v === 'object' && !Array.isArray(v)) siteGroups[g] = normalizeSite(v as Record<string, unknown>);
+  }
 
   return {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : d.enabled,
@@ -211,6 +260,9 @@ export function normalizeSettings(raw: unknown): Settings {
     hideImages: typeof r.hideImages === 'boolean' ? r.hideImages : d.hideImages,
     hideMediaPosts: typeof r.hideMediaPosts === 'boolean' ? r.hideMediaPosts : d.hideMediaPosts,
     mediaNearGame: oneOf(r.mediaNearGame, ['off', 'page', 'post'] as const, d.mediaNearGame),
+    reactionGifs: oneOf(r.reactionGifs, ['label', 'picture'] as const, d.reactionGifs),
+    replyGifs: oneOf(r.replyGifs, ['show', 'cover'] as const, REPLY_PICTURE_DEFAULTS.replyGifs),
+    replyPhotos: oneOf(r.replyPhotos, ['show', 'cover'] as const, REPLY_PICTURE_DEFAULTS.replyPhotos),
     hideReplies: typeof r.hideReplies === 'boolean' ? r.hideReplies : d.hideReplies,
     // `categories` is the on/off view of `categoryModes`, kept so older readers keep working.
     categories: Object.fromEntries(CATEGORIES.map((c) => [c, categoryModes[c] !== 'off'])) as Record<Category, boolean>,
@@ -218,6 +270,7 @@ export function normalizeSettings(raw: unknown): Settings {
     spoilerAccounts: typeof r.spoilerAccounts === 'boolean' ? r.spoilerAccounts : d.spoilerAccounts,
     blockedAccounts: list(r.blockedAccounts, (s) => parseAccount(s.slice(0, 200)) ?? ''),
     allowWords: list(r.allowWords, (s) => s.trim().slice(0, 80)),
+    allowAccounts: allowAccountList(r.allowAccounts),
     // An empty saved list is a real choice (no hints at all); only a missing one falls back to the built-in list.
     hintWords: Array.isArray(r.hintWords) ? list(r.hintWords, (s) => s.trim().slice(0, 40)) : d.hintWords,
     allowSites: patternList(r.allowSites),
@@ -226,6 +279,7 @@ export function normalizeSettings(raw: unknown): Settings {
     preset: oneOf(r.preset, ['casual', 'careful', 'blackout', 'custom'] as const, d.preset),
     blur: oneOf(r.blur, BLURS, d.blur),
     showReason: typeof r.showReason === 'boolean' ? r.showReason : d.showReason,
+    debugWhy: typeof r.debugWhy === 'boolean' ? r.debugWhy : d.debugWhy,
     revealMode: oneOf(r.revealMode, ['click', 'hold', 'twice'] as const, d.revealMode),
     rememberReveals: typeof r.rememberReveals === 'boolean' ? r.rememberReveals : d.rememberReveals,
     categoryModes,
@@ -236,6 +290,7 @@ export function normalizeSettings(raw: unknown): Settings {
     rareNames: oneOf(r.rareNames, KIND_MODES, d.rareNames),
     parts: Object.fromEntries(PAGE_PARTS.map((p) => [p, typeof partsIn[p] === 'boolean' ? partsIn[p] : d.parts[p]])) as Record<PagePart, boolean>,
     sites,
+    siteGroups,
     pauseVideo: typeof r.pauseVideo === 'boolean' ? r.pauseVideo : d.pauseVideo,
     muteAudio: typeof r.muteAudio === 'boolean' ? r.muteAudio : d.muteAudio,
     thumbsOnly: typeof r.thumbsOnly === 'boolean' ? r.thumbsOnly : d.thumbsOnly,
@@ -243,16 +298,36 @@ export function normalizeSettings(raw: unknown): Settings {
     endDate: isTimeText(r.endDate) ? r.endDate : '',
     startDate: isTimeText(r.startDate) ? r.startDate : '',
     timerOff: r.timerOff === true,
-    blackoutDays: ([0, 3, 7, 14] as const).find((n) => n === r.blackoutDays) ?? 0,
+    blackoutDays: ([-1, 0, 3, 7, 14] as const).find((n) => n === r.blackoutDays) ?? 0,
     blackoutFrom: isTimeText(r.blackoutFrom) && r.blackoutFrom.includes('T') ? r.blackoutFrom : '',
     blackoutZone: isZone(r.blackoutZone) ? r.blackoutZone : '',
     allowTrailers: typeof r.allowTrailers === 'boolean' ? r.allowTrailers : d.allowTrailers,
+    allowStores: typeof r.allowStores === 'boolean' ? r.allowStores : d.allowStores,
     storyFinished: typeof r.storyFinished === 'boolean' ? r.storyFinished : d.storyFinished,
     showBadge: typeof r.showBadge === 'boolean' ? r.showBadge : d.showBadge,
   };
 }
 
 const KIND_MODES = ['off', 'mention', 'always'] as const;
+
+/** The most accounts never to hide kept, and the most words the right-click adds to the words never to hide. */
+export const MAX_ALLOW = 500;
+
+/** Saved accounts never to hide: account keys in their one spelling, no junk, no repeats. */
+function allowAccountList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const keys = v.filter((x): x is string => typeof x === 'string').map((x) => parseAccount(x.slice(0, 200)) ?? '');
+  return [...new Set(keys.filter(Boolean))].slice(0, MAX_ALLOW);
+}
+
+/**
+ * Topics that go by words only (leaks, trailers). Their words count the same under Hide and the middle choice (the matcher only
+ * asks whether the topic is on), so the page offers no middle choice and a saved one is read as Hide. The one difference: a list
+ * entry tagged leaks or trailers (none in today's list) would now hide as the list says instead of waiting for a page about the
+ * game (levels.ts).
+ */
+export const WORDS_ONLY_TOPICS: ReadonlySet<Category> = new Set(['leaks', 'trailers']);
+const wordsOnly = (c: Category, m: CategoryMode): CategoryMode => (m === 'mention' && WORDS_ONLY_TOPICS.has(c) ? 'always' : m);
 
 /**
  * A preset decides every kind's choice itself. Only 'custom' keeps what was saved per kind.
@@ -262,6 +337,7 @@ const KIND_MODES = ['off', 'mention', 'always'] as const;
  * `customBase` is the preset Custom came from. Custom saved before it existed gets the preset its rows match best
  * (a tie goes to Main story, the default every older Custom started from).
  */
+
 function normalizeProtect(r: Record<string, unknown>, categoryModes: Record<Category, CategoryMode>) {
   const saved = r.kindModes && typeof r.kindModes === 'object' && !Array.isArray(r.kindModes) ? (r.kindModes as Record<string, unknown>) : undefined;
   const named = PROTECTS.includes(r.protect as Protect) ? (r.protect as Protect) : undefined;
@@ -293,7 +369,8 @@ const BLURS = ['light', 'medium', 'heavy', 'solid'] as const;
 
 function normalizeSite(v: Record<string, unknown>): SiteOverride {
   const out: SiteOverride = {};
-  if (v.off === true) out.off = true;
+  // false is kept: a site switched on beats a group that is switched off.
+  if (typeof v.off === 'boolean') out.off = v.off;
   if (['light', 'medium', 'strict'].includes(v.strictness as string)) out.strictness = v.strictness as Strictness;
   if (v.hideMode === 'blur' || v.hideMode === 'collapse' || v.hideMode === 'remove') out.hideMode = v.hideMode;
   if (BLURS.includes(v.blur as BlurStrength)) out.blur = v.blur as BlurStrength;
@@ -305,20 +382,71 @@ function normalizeSite(v: Record<string, unknown>): SiteOverride {
     }
     if (Object.keys(parts).length) out.parts = parts;
   }
+  for (const f of ['hideImages', 'hideMediaPosts', 'thumbsOnly'] as const) if (typeof v[f] === 'boolean') out[f] = v[f];
+  if (['off', 'page', 'post'].includes(v.mediaNearGame as string)) out.mediaNearGame = v.mediaNearGame as MediaNearGame;
+  if (v.reactionGifs === 'label' || v.reactionGifs === 'picture') out.reactionGifs = v.reactionGifs;
+  if (v.replyGifs === 'show' || v.replyGifs === 'cover') out.replyGifs = v.replyGifs;
+  if (v.replyPhotos === 'show' || v.replyPhotos === 'cover') out.replyPhotos = v.replyPhotos;
+  return out;
+}
+
+/** The site entry that applies to a host: its own, or the closest parent site's (the most specific name wins). */
+function siteKey(s: Pick<Settings, 'sites'>, host: string): string | undefined {
+  const h = host.toLowerCase().replace(/^www\./, '');
+  return h ? Object.keys(s.sites).filter((k) => h === k || h.endsWith('.' + k)).sort((a, b) => b.length - a.length)[0] : undefined;
+}
+
+/** Groups of sites that can share one override. */
+export type SiteGroup = 'livestream' | 'youtube';
+export const SITE_GROUPS: readonly SiteGroup[] = ['livestream', 'youtube'];
+
+/** A YouTube page that is a live stream by its address alone. A live stream opened as a /watch link is not seen (BUGS.md B-049). */
+const YOUTUBE_LIVE_PATH = /^\/(live\/[^/]+|@[^/]+\/live|channel\/[^/]+\/live|c\/[^/]+\/live)$/i;
+
+/**
+ * The groups an address belongs to, the most specific first. livestream: Twitch, Kick, and YouTube live pages. youtube: every
+ * YouTube host (music, mobile, youtu.be). Read from the address only, never the page.
+ */
+export function groupsFor(url: string): SiteGroup[] {
+  const a = parseAddress(url);
+  if (!a) return [];
+  const under = (h: string) => a.host === h || a.host.endsWith('.' + h);
+  const youtube = under('youtube.com') || a.host === 'youtu.be';
+  const out: SiteGroup[] = [];
+  if (under('twitch.tv') || under('kick.com') || (youtube && YOUTUBE_LIVE_PATH.test(a.path))) out.push('livestream');
+  if (youtube) out.push('youtube');
+  return out;
+}
+
+/** The entries that apply, strongest first: the site's own, then its groups. */
+function overrides(s: Pick<Settings, 'sites' | 'siteGroups'>, host: string, url: string): SiteOverride[] {
+  const key = siteKey(s, host);
+  return [key ? s.sites[key] : undefined, ...groupsFor(url).map((g) => s.siteGroups?.[g])].filter((o): o is SiteOverride => !!o);
+}
+
+/** One override from several, field by field: the first that sets a field wins it (page parts one by one too). */
+function merged(list: SiteOverride[]): SiteOverride | undefined {
+  if (!list.length) return undefined;
+  const out: SiteOverride = {};
+  for (const o of [...list].reverse()) {
+    const { parts, ...rest } = o;
+    Object.assign(out, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+    if (parts) out.parts = { ...out.parts, ...parts };
+  }
   return out;
 }
 
 /**
- * Settings that apply at one address: the global values, then the per-site override matched by host (the most specific
- * host wins), then the Safe and Strict lists matched against the whole address: a listed place is Strict "whatever you chose
- * above", a site's own level included. A frame passes `ownHost` so that per-site
- * look-and-feel overrides still follow the frame's own site while the lists follow the tab's page (`url`).
+ * Settings that apply at one address: the global values, then the site's own entry and its groups (settings.ts groupsFor; the
+ * site's own entry wins, then the most specific group), then the Safe and Strict lists matched against the whole address: a
+ * listed place is Strict "whatever you chose above", a site's own level included. A frame passes `ownHost` so that a site's own
+ * look-and-feel entry still follows the frame's own site; the groups and the lists follow the tab's page (`url`), as groups are
+ * read from the page address and a frame has none of its own.
+ * Pictures are not here: picturesFor is the one place a site's picture values are read.
  */
 export function settingsForUrl(s: Settings, url: string, ownHost?: string): Settings {
   const parsed = parseAddress(url);
-  const h = (ownHost ?? parsed?.host ?? '').toLowerCase().replace(/^www\./, '');
-  const key = h ? Object.keys(s.sites).filter((k) => h === k || h.endsWith('.' + k)).sort((a, b) => b.length - a.length)[0] : undefined;
-  const o = key ? s.sites[key] : undefined;
+  const o = merged(overrides(s, ownHost ?? parsed?.host ?? '', url));
   const verdict = listVerdict(s, url);
   const listOff = verdict === 'safe';
   const listStrict = verdict === 'strict';
@@ -331,6 +459,149 @@ export function settingsForUrl(s: Settings, url: string, ownHost?: string): Sett
     blur: o?.blur ?? s.blur,
     parts: { ...s.parts, ...(o?.parts ?? {}) },
   };
+}
+
+/** Where the level at an address comes from, as settingsForUrl reads it: the Strict list, the site's own entry, a group, a changed global level, or none. */
+export type StrictnessSource = 'default' | 'global' | 'site' | 'group' | 'list';
+export function strictnessSource(s: Settings, url: string, ownHost?: string): StrictnessSource {
+  if (listVerdict(s, url) === 'strict') return 'list';
+  const key = siteKey(s, ownHost ?? parseAddress(url)?.host ?? '');
+  if (key && s.sites[key]?.strictness !== undefined) return 'site';
+  if (groupsFor(url).some((g) => s.siteGroups?.[g]?.strictness !== undefined)) return 'group';
+  return s.strictness === DEFAULT_SETTINGS.strictness ? 'default' : 'global';
+}
+
+/** Settings as a group's own entry sets them, pictures included (the options page draws a group's examples with these). */
+export function settingsForGroup(s: Settings, group: SiteGroup): Settings {
+  const o = s.siteGroups[group] ?? {};
+  const pictures = Object.fromEntries(SITE_PICTURE_FIELDS.filter((f) => o[f] !== undefined).map((f) => [f, o[f]]));
+  return { ...s, enabled: s.enabled && !o.off, strictness: o.strictness ?? s.strictness, hideMode: o.hideMode ?? s.hideMode, blur: o.blur ?? s.blur, parts: { ...s.parts, ...o.parts }, ...pictures };
+}
+
+/** The seven picture settings, each with its value. */
+export type Pictures = Pick<Settings, SitePictureField>;
+
+/** What a scanner built without settings does (tests, previews of one choice): pictures are not checked. */
+export const BARE_PICTURES: Pictures = { hideImages: false, hideMediaPosts: true, mediaNearGame: 'page', reactionGifs: 'label', ...REPLY_PICTURE_DEFAULTS, thumbsOnly: false };
+
+/** Each picture setting's values from the most lenient to the strictest. thumbsOnly false is stricter: words are hidden too. */
+const PICTURE_STRICTNESS: { [F in SitePictureField]: readonly Pictures[F][] } = {
+  hideImages: [false, true],
+  hideMediaPosts: [false, true],
+  mediaNearGame: ['off', 'page', 'post'],
+  reactionGifs: ['label', 'picture'],
+  replyGifs: ['show', 'cover'],
+  replyPhotos: ['show', 'cover'],
+  thumbsOnly: [true, false],
+};
+
+/**
+ * The one place picture settings are resolved: the global values (a missing or broken one gets its default), then the site's own
+ * entry and its groups, as settingsForUrl merges them. The site is the tab's (`url`); `host` is only used when the address has
+ * none, so a frame follows the page it sits in. `fromSite`: the fields a site or group decided. `global`: the values without them.
+ * `blackout`: the launch-week blackout is on; a site or group value counts then only when it is at least as strict as the
+ * global one, so a site set to show pictures never weakens the blackout.
+ */
+export function picturesFor(saved: Settings, url: string, host?: string, at: { blackout?: boolean } = {}): { values: Pictures; fromSite: Set<SitePictureField>; global: Pictures } {
+  const values = Object.fromEntries(
+    SITE_PICTURE_FIELDS.map((f) => [f, (PICTURE_STRICTNESS[f] as readonly unknown[]).includes(saved[f]) ? saved[f] : DEFAULT_SETTINGS[f]]),
+  ) as Pictures;
+  const global = { ...values };
+  const fromSite = new Set<SitePictureField>();
+  const list = overrides(saved, parseAddress(url)?.host ?? host ?? '', url);
+  for (const f of SITE_PICTURE_FIELDS) {
+    const rank = (x: unknown) => (PICTURE_STRICTNESS[f] as readonly unknown[]).indexOf(x);
+    // The strongest entry that sets the field and, in the blackout, is at least as strict as the global value.
+    const v = list.map((o) => o[f]).find((x) => x !== undefined && (!at.blackout || rank(x) >= rank(values[f])));
+    if (v === undefined) continue;
+    (values as Record<string, unknown>)[f] = v;
+    fromSite.add(f);
+  }
+  return { values, fromSite, global };
+}
+
+/**
+ * What the site entries and groups decide at an address, as one string ('' when there are none). A single-page site that moves
+ * to an address where it differs (YouTube home to a live page) starts its scan again.
+ */
+export function siteDecisionKey(s: Settings, url: string, host?: string): string {
+  if (!Object.keys(s.sites).length && !Object.keys(s.siteGroups ?? {}).length) return '';
+  const o = settingsForUrl(s, url, host);
+  return JSON.stringify([o.enabled, o.strictness, o.hideMode, o.blur, o.parts, picturesFor(s, url, host).values]);
+}
+
+/** The group that switches everything off at an address, when the site's own entry does not (the popup names it). */
+export function groupSwitchedOff(s: Pick<Settings, 'sites' | 'siteGroups'>, url: string): SiteGroup | undefined {
+  const key = siteKey(s, parseAddress(url)?.host ?? '');
+  if (key && s.sites[key]!.off !== undefined) return undefined;
+  return groupsFor(url).find((g) => s.siteGroups?.[g]?.off);
+}
+
+/**
+ * The group that decides some of the pictures at an address (the popup names it), or undefined when the site's own entry or
+ * nothing does.
+ */
+export function groupDeciding(s: Pick<Settings, 'sites' | 'siteGroups'>, url: string, host?: string): SiteGroup | undefined {
+  const key = siteKey(s, parseAddress(url)?.host ?? host ?? '');
+  const own = key ? s.sites[key] : undefined;
+  const open = SITE_PICTURE_FIELDS.filter((f) => own?.[f] === undefined);
+  return groupsFor(url).find((g) => open.some((f) => s.siteGroups?.[g]?.[f] !== undefined));
+}
+
+/**
+ * The one-tap choice for pictures on a site (the popup and the right-click menu).
+ * covered: the strictest picture choices, the same as the Blackout preset's: pictures and clips near the game are covered.
+ * shown: pictures are not covered for being pictures (no picture check, nothing for being near the game, reply and reaction GIFs
+ * and photos shown). A post whose words give something away is still hidden, pictures and all.
+ * Neither touches "Cover pictures only, never words" (thumbsOnly): it decides about words, not pictures. 'same' removes every
+ * picture field of the site, thumbsOnly included.
+ */
+export type SitePictures = 'covered' | 'shown' | 'same';
+type PictureChoice = Pick<Settings, Exclude<SitePictureField, 'thumbsOnly'>>;
+export const SITE_PICTURES: Record<Exclude<SitePictures, 'same'>, PictureChoice> = {
+  covered: { hideImages: true, hideMediaPosts: true, mediaNearGame: 'post', reactionGifs: 'picture', replyGifs: 'cover', replyPhotos: 'cover' },
+  shown: { hideImages: false, hideMediaPosts: false, mediaNearGame: 'off', reactionGifs: 'label', replyGifs: 'show', replyPhotos: 'show' },
+};
+
+/** Where a one-tap choice is read or written: a site (by host) or a group. */
+export type PictureTarget = string | { group: SiteGroup };
+
+/** What a site's or a group's pictures are set to now. 'mixed': it has picture values of its own that are neither choice. */
+export function sitePicturesChoice(s: Pick<Settings, 'sites'> & Partial<Pick<Settings, 'siteGroups'>>, target: PictureTarget): SitePictures | 'mixed' {
+  let o: SiteOverride = {};
+  if (typeof target === 'string') {
+    const key = siteKey(s, target);
+    o = key ? s.sites[key]! : {};
+  } else o = s.siteGroups?.[target.group] ?? {};
+  if (SITE_PICTURE_FIELDS.every((f) => o[f] === undefined)) return 'same';
+  for (const c of ['covered', 'shown'] as const) if (Object.entries(SITE_PICTURES[c]).every(([f, v]) => o[f as SitePictureField] === v)) return c;
+  return 'mixed';
+}
+
+/** An entry with its pictures set to `choice`; undefined when 'same' leaves nothing in it. */
+function withChoice(o: SiteOverride, choice: SitePictures): SiteOverride | undefined {
+  if (choice !== 'same') return { ...o, ...SITE_PICTURES[choice] };
+  const kept = Object.fromEntries(Object.entries(o).filter(([f]) => !(SITE_PICTURE_FIELDS as readonly string[]).includes(f))) as SiteOverride;
+  return Object.keys(kept).length ? kept : undefined;
+}
+
+/**
+ * The sites with a host's pictures set to `choice`, written to the site entry that already applies to the host (so a subdomain
+ * keeps its parent site's other choices), or a new one for the host. 'same' drops the entry when nothing else is left in it.
+ */
+export function withSitePictures(s: Pick<Settings, 'sites'>, host: string, choice: SitePictures): Record<string, SiteOverride> {
+  const key = siteKey(s, host) ?? normalizeHost(host);
+  if (!key) return s.sites;
+  const { [key]: old, ...rest } = s.sites;
+  const next = withChoice(old ?? {}, choice);
+  return next ? { ...s.sites, [key]: next } : rest;
+}
+
+/** The same for a group. */
+export function withGroupPictures(s: Pick<Settings, 'siteGroups'>, group: SiteGroup, choice: SitePictures): Partial<Record<SiteGroup, SiteOverride>> {
+  const { [group]: old, ...rest } = s.siteGroups ?? {};
+  const next = withChoice(old ?? {}, choice);
+  return next ? { ...s.siteGroups, [group]: next } : rest;
 }
 
 /** What the two address lists say about one address. Safe wins over Strict. */
@@ -390,15 +661,17 @@ function blackoutStart(s: BlackoutSettings, release: string | undefined): number
 export function blackoutOn(s: BlackoutSettings, release: string | undefined, now: number): boolean {
   const start = blackoutStart(s, release);
   if (!s.blackoutDays || start === undefined) return false;
-  return now >= start && now < start + s.blackoutDays * 86_400_000;
+  return now >= start && (s.blackoutDays < 0 || now < start + s.blackoutDays * 86_400_000);
 }
 
 /** When the blackout next starts or ends, so an open tab can look again then; undefined when it will not change. */
 export function blackoutNextChange(s: BlackoutSettings, release: string | undefined, now: number): number | undefined {
   const start = blackoutStart(s, release);
   if (!s.blackoutDays || start === undefined) return undefined;
+  if (now < start) return start;
+  if (s.blackoutDays < 0) return undefined;
   const end = start + s.blackoutDays * 86_400_000;
-  return now < start ? start : now < end ? end : undefined;
+  return now < end ? end : undefined;
 }
 
 /** A day (YYYY-MM-DD), read as local midnight, or a day and time (YYYY-MM-DDTHH:MM), read as local time. */
@@ -434,8 +707,8 @@ export function isSuspended(s: Settings, now: number): boolean {
 /** The named presets set the how-it-looks fields. Anything else the user changed stays. */
 export const PRESETS: Record<Exclude<Preset, 'custom'>, Partial<Settings>> = {
   casual: { strictness: 'light', blur: 'light', hideMode: 'blur', showReason: true, mediaNearGame: 'page', hideMediaPosts: false },
-  careful: { strictness: 'medium', blur: 'medium', hideMode: 'blur', showReason: true, mediaNearGame: 'page', hideMediaPosts: true },
-  blackout: { strictness: 'strict', blur: 'solid', hideMode: 'remove', showReason: false, mediaNearGame: 'post', hideMediaPosts: true },
+  careful: { strictness: 'medium', blur: 'medium', hideMode: 'blur', showReason: true, mediaNearGame: 'post', hideMediaPosts: true },
+  blackout: { strictness: 'strict', blur: 'solid', hideMode: 'remove', showReason: false, mediaNearGame: 'post', reactionGifs: 'picture', replyGifs: 'cover', replyPhotos: 'cover', hideMediaPosts: true },
 };
 
 export function applyPreset(s: Settings, name: Exclude<Preset, 'custom'>): Settings {

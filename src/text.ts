@@ -21,9 +21,15 @@ export const ORDINARY_TEXT = words.ordinary;
 export const PART_TEXT = words.parts;
 export const REPLIES_TEXT = words.replies;
 export const MEDIA_NEAR_TEXT = words.mediaNear;
+export const REACTION_GIF_TEXT = words.reactionGifs;
+export const REPLY_GIF_TEXT = words.replyGifs;
+export const REPLY_PHOTO_TEXT = words.replyPhotos;
 export const CATEGORY_TEXT = words.categories;
 export const BLACKOUT_TEXT = words.blackout;
 export const UPDATE_TEXT = words.updateSchedule;
+export const EXAMPLE_TEXT = words.examples;
+/** What changed, per version (key v1_2_3): shown once in the popup after an update to that version. */
+export const RELEASE_NOTES = words.releaseNotes as unknown as Record<string, readonly string[] | undefined>;
 
 type Examples = readonly (readonly [string, string, string])[];
 
@@ -37,5 +43,16 @@ export const TEXT = {
   safeWhy: (kind: 'site' | 'prefix' | 'page', label: string) => fill(words.text.safeWhy[kind], { label }),
   strictHere: (label: string) => fill(words.text.strictHere, { label }),
   pausedUntil: (when: string) => fill(words.text.pausedUntil, { when }),
+  listStaleSince: (date: string) => fill(words.text.listStale.since, { date }),
+  whatsNewTitle: (version: string) => fill(words.text.whatsNew.title, { version }),
+  updateLine: (version: string) => fill(words.text.updateAvailable.line, { version }),
   offOnSite: (site: string) => fill(words.text.offOnSite, { site }),
+  updateFailed: (when: string, why: keyof typeof words.text.updates.failedWhy) => fill(words.text.updates.failed, { when, why: words.text.updates.failedWhy[why] }),
+  updated: (version: number, added: number) => {
+    const r = words.text.updates.result;
+    return fill(added === 0 ? r.updated : added === 1 ? r.updatedOne : r.updatedMany, { version, added });
+  },
+  upToDate: (version: number) => fill(words.text.updates.result.current, { version }),
+  updateWait: () => words.text.updates.result.wait,
+  updateError: (why: keyof typeof words.text.updates.failedWhy) => fill(words.text.updates.result.error, { why: words.text.updates.failedWhy[why] }),
 };

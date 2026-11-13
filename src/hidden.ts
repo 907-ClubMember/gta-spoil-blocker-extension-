@@ -8,7 +8,8 @@ export const HIDE_KEYS: readonly HideKey[] = [...KIND_GROUPS, 'words', 'media', 
 
 /** Which keys one hidden item counts under. */
 export function keysFor(why: string, groups: readonly (KindGroup | 'custom')[] | undefined): HideKey[] {
-  if (why === 'spoiler-word') return ['words'];
+  // A chat line covered for a spoiler word after a game mention has no list name behind it either (B-019).
+  if (why === 'spoiler-word' || (why === 'chat' && !groups?.length)) return ['words'];
   if (why === 'media' || why === 'near-game') return ['media'];
   if (why === 'account') return ['accounts'];
   return [...new Set(groups ?? [])];

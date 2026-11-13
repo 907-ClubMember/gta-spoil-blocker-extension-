@@ -2,7 +2,7 @@
   "_howToEdit": "Change only the words on the right of each colon, keep the double quotes, and write \\\" for a quote mark inside the text. Keep anything in {curly brackets}: the extension fills those in. Then save, and the checks say if anything is wrong.",
   "manifest": {
     "name": "Spoiler Blocker for GTA 6",
-    "description": "Hides GTA 6 spoilers across the web. Runs locally; the spoiler list updates itself."
+    "description": "Hides GTA 6 spoilers across the web by checking pages against an automatically updated spoiler list."
   },
   "store": {
     "name": "Spoiler Blocker for GTA 6",
@@ -10,27 +10,28 @@
     "description": [
       "Avoid GTA 6 story spoilers while you browse.",
       "The extension blurs posts, videos, comments and search results that would give away the story: who dies, twists, endings, the final missions and the names that reveal them. Everything else on the page stays as it is.",
-      "- Works on YouTube, Reddit, X, Bluesky, Facebook, Instagram, Twitch, Kick, Discord, Steam, Google, Bing, DuckDuckGo, Gmail and ordinary websites.",
+      "- Works on YouTube, Reddit, X, Bluesky, Facebook, Instagram, Twitch, Kick, Discord, Steam, Google, Bing, DuckDuckGo, Gmail, and basic support for other websites.",
       "- Hides the whole post or comment, not just a word, so the rest of a thread stays readable.",
       "- Hides everything from known spoiler accounts, whatever their posts say.",
       "- You choose how much to protect: only the big moments, the main story (the default), or everything.",
       "- Blur, collapse or remove; click or hold to peek; pause it, or set a day it stops.",
       "- Safe and strict site lists, your own words to hide, and words never to hide.",
       "- The spoiler list updates by itself while the game's wikis fill in.",
+      "- It reads words, not meaning: a comment that tells the story in plain words, with no name or spoiler word in it, can still get through.",
       "Private by design: pages are read only inside your browser. No account, no tracking, no analytics. The only download is the spoiler list itself.",
       "Not affiliated with, endorsed by or connected to Rockstar Games or Take-Two Interactive. Grand Theft Auto and GTA are trademarks of Take-Two Interactive."
     ]
   },
   "welcome": {
-    "title": "You are protected",
+    "title": "Thank you for installing Spoiler Blocker for GTA 6",
     "intro": "Spoiler Blocker hides GTA 6 spoilers on the pages you visit: Reddit, YouTube, X, search results and everywhere else. It reads pages only inside your browser, looks for matches with a list of spoilers, and hides the content when it finds one. Nothing about what you browse is sent anywhere. The extension's code is open source on GitHub.",
     "pick": "How much do you want hidden?",
     "change": "You can change this any time.",
-    "pin": "Tip: pin the extension to your toolbar with the puzzle-piece icon. From there you can pause it or mark a site as safe.",
+    "pin": "Tip: pin the extension to your toolbar with the puzzle-piece icon. From there you can pause it or mark a site as safe. In private (Incognito) windows Chrome keeps extensions off until you turn on Allow in Incognito on the extension's details page.",
     "settings": "See all settings",
     "done": "Done",
     "saved": "Saved. You can change this any time.",
-    "howto": "Click the label on anything hidden to see it. Finished the game? Just switch it off in the popup.",
+    "howto": "Click the label on anything hidden to see it. Finished the game? Just switch it off in the popup. It reads words, not meaning: a comment that tells the story in plain words, with no name or spoiler word in it, can still get through.",
     "launchPick": "Hide every post about GTA 6 for the first days after release?",
     "launchHelp": "This catches things before the spoiler list knows them, like new features nobody has written up yet. It also hides harmless posts during that time."
   },
@@ -98,8 +99,8 @@
       "example": "In GTA V: Simeon, Wade, Ron"
     },
     "minor": {
-      "name": "Walk-on characters",
-      "example": "In GTA V: a cab driver in one scene"
+      "name": "One-scene characters",
+      "example": "In GTA V: a random dock worker"
     },
     "group": {
       "name": "Gangs and groups",
@@ -107,19 +108,19 @@
     },
     "brand": {
       "name": "Brands and businesses",
-      "example": "In GTA V: Cluckin' Bell, Ammu-Nation. Mostly tells the extension a page is about the game. Usually not hidden itself, even on Hide."
+      "example": "In GTA V: Cluckin' Bell, Ammu-Nation. Used to recognise content about the game. Usually not hidden itself, even on Hide."
     },
     "setting": {
       "name": "Cities and regions",
-      "example": "In GTA V: Los Santos, Blaine County. Mostly tells the extension a page is about the game. Usually not hidden itself, even on Hide."
+      "example": "In GTA V: Los Santos, Blaine County. Used to recognise content about the game. Usually not hidden itself, even on Hide."
     },
     "area": {
       "name": "Towns, streets and landmarks",
-      "example": "In GTA V: Vinewood, Sandy Shores. Mostly tells the extension a page is about the game. Usually not hidden itself, even on Hide."
+      "example": "In GTA V: Vinewood, Sandy Shores. Used to recognise content about the game. Usually not hidden itself, even on Hide."
     },
     "storyplace": {
-      "name": "Places that matter to the story",
-      "example": "In GTA V: Trevor's trailer. The name can show; a post about what happens there is still hidden"
+      "name": "Key story places",
+      "example": "In GTA V: the Union Depository. The place name alone can show; posts describing what happens there are hidden."
     },
     "mission": {
       "name": "Story missions",
@@ -131,22 +132,22 @@
     },
     "chapter": {
       "name": "Chapters and acts",
-      "example": "GTA V has none; Red Dead 2 has chapters"
+      "example": "GTA V has none; Red Dead 2 has chapters. It is not known if GTA 6 will."
     },
     "final": {
-      "name": "Last missions and epilogue",
+      "name": "Endings and final missions",
       "example": "In GTA V: the three endings"
     },
     "sidejob": {
-      "name": "Side missions and strangers",
+      "name": "Side missions",
       "example": "In GTA V: Strangers and Freaks"
     },
     "fate": {
-      "name": "Deaths and fates",
+      "name": "Who dies and who lives",
       "example": "In GTA V: who is still alive at the end"
     },
     "twist": {
-      "name": "Twists and story choices",
+      "name": "Twists and big choices",
       "example": "In GTA V: the choice before the last mission"
     },
     "secret": {
@@ -158,16 +159,16 @@
       "example": "In GTA V: Bigfoot sightings"
     },
     "unlock": {
-      "name": "Unlocks and rewards",
-      "example": "In GTA V: the stock market money"
+      "name": "Rewards and purchases",
+      "example": "In GTA V: properties and weapons you can buy"
     },
     "collect": {
       "name": "Collectibles",
       "example": "In GTA V: spaceship parts"
     },
     "other": {
-      "name": "New or other things",
-      "example": "Anything new that GTA 6 adds"
+      "name": "Unknown category",
+      "example": "Names that fit none of the other kinds. Hidden only when the page mentions GTA 6"
     }
   },
   "kindGroups": {
@@ -193,14 +194,15 @@
   "rare": {
     "heading": "Unusual names",
     "name": "Unusual names",
-    "help": "Side characters whose name you would not meet outside the game, like Lazlow in GTA V. Seeing one also tells the extension a post is about GTA 6."
+    "help": "Side characters whose name you would not meet outside the game, like Lazlow in GTA V. Seeing one also tells the extension a post is about GTA 6.",
+    "mention": "Only when the post or page mentions GTA 6"
   },
   "ordinary": {
     "name": "Names that are also everyday words",
-    "help": "Like Trevor or Chop in GTA V: they could mean anything, so they are easy to hide by mistake. \"Never hide them\" also lets leak, trailer and ending posts show on pages about the game.",
+    "help": "Like Trevor or Chop in GTA V: they are also common words on the public web, so they are easy to hide by mistake. \"Never hide them\" also lets leak, trailer and ending posts show on pages about the game.",
     "options": {
-      "light": "Never hide them (posts about leaks and endings show too)",
-      "medium": "Only when the page mentions GTA 6",
+      "light": "Never hide them (some posts may slip through)",
+      "medium": "Only when the post or page mentions GTA 6",
       "strict": "Always hide them"
     }
   },
@@ -211,10 +213,11 @@
       "0": "Off",
       "3": "For 3 days",
       "7": "For a week",
-      "14": "For 2 weeks"
+      "14": "For 2 weeks",
+      "-1": "Until I turn it off"
     },
     "start": "Start",
-    "startHelp": "Leave Start empty to begin on the release day the spoiler list gives, at midnight your time.",
+    "startHelp": "Leave Start empty to begin on the release day the spoiler list gives, at midnight your time. \"Until I turn it off\" never ends: pick Off to stop.",
     "zone": "Time zone",
     "zoneYours": "My time zone"
   },
@@ -225,11 +228,11 @@
     },
     "medium": {
       "name": "Medium: recommended",
-      "help": "Also hides character and place names when the post, its thread, or the page mentions GTA 6, when a post contains two such names, or when a name sits next to a hint word like \"mission\" or \"hate\". Hides posts that name GTA 6 with a spoiler word such as \"ending\", and picture or video posts on pages about the game. A good balance."
+      "help": "Also hides character and place names when the post, its thread, or the page mentions GTA 6, when a post contains two such names, or when a name sits next to a hint word like \"mission\" or \"funeral\". Hides posts that name GTA 6 with a spoiler word such as \"ending\", and picture or video posts on pages about the game. A good balance. For example, a name next to \"funeral\" hints that someone dies."
     },
     "strict": {
-      "name": "Strict: hide anything suspicious",
-      "help": "Hides anything containing a known name or term, even if the post never mentions GTA 6. Safest, but it will sometimes hide unrelated things."
+      "name": "Strict: hide any known name",
+      "help": "Hides any post that contains a name from the spoiler list, even if it never says GTA 6. Safest, but it will sometimes hide unrelated posts."
     }
   },
   "blur": {
@@ -265,9 +268,9 @@
     }
   },
   "categoryModes": {
-    "always": "Hide, following What to hide and the block out method",
-    "mention": "Only when the page is about GTA 6",
-    "off": "Never hide this kind"
+    "always": "Hide",
+    "mention": "Only when the page mentions GTA 6",
+    "off": "Show"
   },
   "categories": {
     "story": {
@@ -288,7 +291,7 @@
     },
     "leaks": {
       "name": "Posts about leaks",
-      "help": "Hides a post that names GTA 6 and says leak, leaks or leaked. It goes by those words only: it does not know what has really leaked."
+      "help": "Hides a post that says leak, leaks or leaked next to a name from the spoiler list. Just GTA 6 and the word leak is news and stays shown. It goes by those words only: it does not know what has really leaked."
     },
     "trailers": {
       "name": "Posts about trailers",
@@ -333,12 +336,42 @@
       "help": "A picture is only hidden when its own caption or file name gives something away."
     },
     "page": {
-      "name": "On pages about GTA 6: recommended",
-      "help": "On a page about the game, like a search or a fan community, every large picture and video is blurred, harmless ones too. Words stay readable, and one click shows a picture. Not in Casual."
+      "name": "Only on pages that mention GTA 6",
+      "help": "On a page whose title, heading or address mentions GTA 6, like a GTA 6 subreddit or a search for GTA 6, every large picture and video is blurred, harmless ones too. Words stay readable, and one click shows a picture. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
     },
     "post": {
-      "name": "Anywhere GTA 6 is named beside the picture",
-      "help": "The choice above, and also any large picture on any page when GTA 6 is named beside it. Catches the most, and blurs the most harmless pictures."
+      "name": "Also next to any post that mentions GTA 6: recommended",
+      "help": "The choice above, and also any large picture on any page when the post or caption next to it mentions GTA 6, and the small preview picture of such a post on Reddit. Words stay readable, and one click shows a picture. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
+    }
+  },
+  "replyGifs": {
+    "show": {
+      "name": "Show them",
+      "help": "A GIF posted as a reply with no words of its own about the game, and with a clean description, is shown, even on a page about the game. Recommended: reaction GIFs are almost always harmless. A game clip posted as a GIF reply stays visible too. The post's own pictures, quoted posts, link cards, galleries and video are still covered."
+    },
+    "cover": {
+      "name": "Cover them like other pictures",
+      "help": "Reply GIFs without a description are covered like any other picture next to the name of the game. Safer, but harmless reaction GIFs get covered too. A GIF from a GIF library that has a description is judged by 'Reaction GIFs from a GIF library' above, whatever this says."
+    }
+  },
+  "replyPhotos": {
+    "show": {
+      "name": "Show them",
+      "help": "A photo or picture posted as a reply with no words of its own about the game, and with a clean description, is shown, even on a page about the game. A spoiler screenshot posted as a bare reply stays visible too. The post's own pictures, quoted posts, link cards, galleries and video are still covered."
+    },
+    "cover": {
+      "name": "Cover them like other pictures",
+      "help": "Reply photos are covered like any other picture next to the name of the game. Recommended: it also covers a spoiler screenshot posted as a bare reply, at the price of covering harmless photos too."
+    }
+  },
+  "reactionGifs": {
+    "label": {
+      "name": "Judge them by their label (default)",
+      "help": "A reaction GIF from a GIF library is hidden only when its label or title gives something away. Otherwise it shows, even next to the name of the game. A spoiler GIF with a harmless-sounding label can slip through; pick the other choice if you want no risk."
+    },
+    "picture": {
+      "name": "Always cover them like pictures",
+      "help": "Reaction GIFs are treated like any other picture, so they are covered whenever the pictures above would be. Safer, but harmless GIFs get covered too."
     }
   },
   "updateSchedule": {
@@ -346,6 +379,111 @@
     "6h": "Every 6 hours",
     "daily": "Once a day",
     "manual": "Only when I press \"Update spoiler list now\""
+  },
+  "examples": {
+    "title": "Example with made-up posts about ZZG 9, an invented game.",
+    "legendCovered": "Covered",
+    "legendShown": "Stays visible",
+    "removed": "Removed: nothing is left here",
+    "custom": "Your own mix: the lists above show what is covered.",
+    "because": "Nothing is covered here because {setting}.",
+    "isOn": "\"{name}\" is on",
+    "isOff": "\"{name}\" is off",
+    "picked": "\"{name}\" is picked",
+    "kindShown": "the What to hide choice leaves these names visible",
+    "topicShown": "the \"{name}\" switch under {section} lets it through",
+    "setTo": "\"{name}\" is set to {choice}",
+    "trailerNote": "Names already shown in the official trailers stay visible while \"{name}\" is on.",
+    "siteOnly": "This is this site's own choice: other sites keep the one on the Pictures and comments tab.",
+    "peopleNote": "A real person who appears in the game is covered only next to a story word such as \"dies\".",
+    "kindNames": {
+      "people": "Tamsin Rook",
+      "groups": "the Velvet Gulls",
+      "places": "Glimmer Pier",
+      "missions": "the Quux Bank Heist",
+      "moments": "the Glass Tide choice",
+      "gameplay": "the Moth Statue secret",
+      "other": "Project Zorb"
+    },
+    "say": {
+      "covered": "Covered",
+      "light": "Covered with a light blur",
+      "line": "Shrunk to one line",
+      "gone": "Removed",
+      "shown": "Stays visible"
+    },
+    "where": {
+      "game": "A page about ZZG 9",
+      "other": "Any other page",
+      "blackoutGame": "A page about ZZG 9, during the blackout",
+      "blackoutOther": "Any other page, during the blackout"
+    },
+    "bits": {
+      "words": { "show": "Zorblax Quux: Two more weeks until ZZG 9!", "say": "a post about ZZG 9" },
+      "spoilerWords": { "show": "Zorblax Quux: The way ZZG 9 ends, wow. Nobody saw that last twist coming.", "say": "a post that gives away the ending" },
+      "storyName": { "show": "Brisa Talon is my favourite character so far.", "say": "a post with a story character's name" },
+      "picture": { "show": "Picture: sunset over the city", "say": "a big picture next to the post" },
+      "spoilerPicture": { "show": "Picture: quux-bank-heist-ending.png", "say": "a picture whose file name gives something away" },
+      "clipOnly": { "show": "A video clip with no words", "say": "a post that is only a video clip" },
+      "libraryGif": { "show": "GIF: happy dance", "say": "a reaction GIF with a harmless label" },
+      "spoilerGif": { "show": "GIF: Quux Bank Heist last scene", "say": "a reaction GIF whose label gives something away" },
+      "replyGif": { "show": "Reply: a GIF with no words", "say": "a GIF posted as a reply" },
+      "replyPhoto": { "show": "Reply: a photo with no words", "say": "a photo posted as a reply" },
+      "comment": { "show": "The Quux Bank Heist ends with a betrayal.", "say": "the spoiler comment" },
+      "hintReply": { "show": "Reply: Wow, I did not see that coming.", "say": "a reply that only hints" },
+      "nameReply": { "show": "Reply: So the Quux Bank Heist was a trap all along.", "say": "a reply that names the mission" },
+      "mission": { "show": "Just finished the Quux Bank Heist mission.", "say": "a post naming a story mission" },
+      "sideName": { "show": "Found Mo Fennick fishing at the docks.", "say": "a post naming a side character" },
+      "city": { "show": "Port Zorb looks amazing at night.", "say": "a post naming a city" },
+      "trailerName": { "show": "Vex Marrow was in the first trailer.", "say": "a name the official trailers already showed" },
+      "videoTitle": { "show": "Video: Quux Bank Heist ending explained", "say": "a video title" },
+      "searchResult": { "show": "Search result: how the Quux Bank Heist ends", "say": "a search result" },
+      "sidebarItem": { "show": "Up next: the Quux Bank Heist finale", "say": "a suggestion in the side column" },
+      "newsText": { "show": "Article: ZZG 9 review, and that Quux Bank Heist twist", "say": "the text of a news article" },
+      "channelPost": { "show": "Zorblax Quux: Watch ZorbLeaks for the whole ZZG 9 story.", "say": "a post that names a known spoiler channel" },
+      "kindName": { "show": "Can't stop thinking about {name}.", "say": "a post with a name of this kind" },
+      "kindNameGame": { "show": "ZZG 9 fans, what do you make of {name}?", "say": "a post that names ZZG 9 and a name of this kind" },
+      "everydayName": { "show": "Biscuit was so funny in that bit.", "say": "a post with a name that is also an everyday word" },
+      "everydayNameGame": { "show": "ZZG 9 fans: Biscuit was so funny in that bit.", "say": "a post that names ZZG 9 and a name that is also an everyday word" },
+      "rareName": { "show": "Quillon Vext waved at me today.", "say": "a post with an unusual name" },
+      "leakName": { "show": "Quillon Vext leaked? No way.", "say": "a post that says an unusual name leaked" },
+      "trailerPost": { "show": "ZZG 9 trailer 2 is out, go watch it!", "say": "a post about a ZZG 9 trailer" },
+      "storePost": { "show": "ZZG 9 is up for pre-order: meet Quillon Vext in the standard edition.", "say": "an official store page or a post that links to one" }
+    }
+  },
+  "releaseNotes": {
+    "_note": "One list per version, written v1_2_3 for version 1.2.3. The popup shows it once after an update to that version (only that version's list, not the ones skipped). No entry: nothing is shown. v0_1_2 is never shown to people (0.1.2 shipped before this existed); it only gives the tests a note for that build.",
+    "v0_1_2": [
+      "Each cover says why it is there, for example \"Hidden: character spoiler\".",
+      "Official trailers from the game's maker and the big outlets are let through when you allow trailers.",
+      "A video under a cover stays paused and muted until you show it."
+    ],
+    "v0_1_3": [
+      "Choose Pictures per site or per group, like Livestream sites or YouTube, from the right-click menu or the popup.",
+      "Each cover says why it is there and which setting caused it, with a Change this link.",
+      "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
+      "Right-click a word or link and choose Never hide this.",
+      "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ]
+  },
+  "coverSource": {
+    "tag": {
+      "strict": "Strict",
+      "ownWords": "your own words",
+      "ownAccounts": "your accounts to hide",
+      "site": "this site's setting",
+      "blackout": "launch blackout"
+    },
+    "sentence": {
+      "strict": "Covered because How careful is Strict.",
+      "siteStrict": "Covered because How careful is Strict on this site.",
+      "siteList": "Covered because this address is in Places to be extra careful.",
+      "sitePictures": "Covered because of this site's picture choice.",
+      "ownWords": "Covered because of a word in My own words to hide.",
+      "ownAccounts": "Covered because of an account in My own accounts to hide.",
+      "builtinAccount": "Covered because Hide known spoiler accounts is on.",
+      "blackout": "Covered because the launch blackout is on."
+    }
   },
   "text": {
     "previewPost": "Franklin and Lamar argue about cars in Strawberry.",
@@ -387,8 +525,8 @@
       "help": "Counts what was hidden on the current tab."
     },
     "showReason": {
-      "name": "Say what kind of thing was hidden",
-      "help": "The label reads \"Hidden: story spoiler\". It never shows the word. Turn off for a plain \"Hidden\"."
+      "name": "Say why something was hidden",
+      "help": "The label reads the reason, for example \"Hidden: picture next to GTA 6\" or \"Hidden: story spoiler\". It never shows the word. Turn off for a plain \"Hidden\"."
     },
     "rememberReveals": {
       "name": "Keep things I showed shown",
@@ -400,7 +538,7 @@
     },
     "muteAudio": {
       "name": "Mute sound",
-      "help": "You can turn the sound back on yourself."
+      "help": "Videos under a cover are always muted until you show them. This setting also mutes the other videos on a page about the game. You can turn the sound back on yourself."
     },
     "thumbsOnly": {
       "name": "Cover pictures only, never words",
@@ -410,10 +548,37 @@
       "name": "Let official trailer content through",
       "help": "Names and details the official trailers already showed are not hidden."
     },
+    "allowStores": {
+      "name": "Let official stores and the publisher's site through",
+      "help": "Pages of the publisher's site and the big console stores, search results and cards that link to them, and the publisher's own posts are shown. Achievements, trophies, comments and forums stay covered."
+    },
     "masterToggle": "Spoiler blocking",
     "masterOffHere": "Off on this site: nothing is hidden here.",
     "masterOffPage": "Off on this page: nothing is hidden here.",
     "popupTitle": "Spoiler Blocker",
+    "whatsNew": {
+      "title": "What's new in version {version}",
+      "dismiss": "Got it"
+    },
+    "updateAvailable": {
+      "line": "A newer version ({version}) is available.",
+      "store": "Chrome updates the extension by itself, usually within a day. To get it now, open chrome://extensions, turn on Developer mode and press Update.",
+      "unpacked": "You loaded this extension from a folder: see How to update below."
+    },
+    "installedFromGithub": "You installed from GitHub: updates are manual. The popup tells you when a new version is out.",
+    "howToUpdate": {
+      "button": "How to update",
+      "step1": "Download the latest zip from {link}: the file ending in -chrome.zip, not \"Source code\".",
+      "link": "the releases page on GitHub",
+      "step2": "Unzip it over the same folder you loaded before: pick that folder as the destination, or copy the files into it and choose Replace. A different folder is a separate copy that starts with default settings.",
+      "step3": "Open chrome://extensions and press Reload on this extension's card, then refresh the pages you have open.",
+      "stay": "Your settings stay as long as you use the same folder."
+    },
+    "listStale": {
+      "builtin": "The spoiler list has not downloaded yet, so only the built-in list is in use.",
+      "never": "The spoiler list has not updated yet.",
+      "since": "The spoiler list has not updated since {date}."
+    },
     "hideAgain": "Turn hiding back on",
     "layoutChanged": "This site seems to have changed its layout, so the general rules are used on this page.",
     "pauseName": "Pause everywhere",
@@ -425,6 +590,36 @@
     "cannotCheck": "This page can't be checked: browsers keep their own pages off limits.",
     "openSettings": "Settings",
     "offOnSite": "Turn off on {site}",
+    "sitePictures": {
+      "name": "Pictures on this site",
+      "covered": "Covered",
+      "shown": "Shown",
+      "same": "Same as everywhere",
+      "help": "Covered: pictures near the game are covered here. Shown: pictures are not covered just for being pictures; a post whose words give something away is still hidden.",
+      "mixed": "This site has its own mix of picture settings. Pick one here, or change them in Settings.",
+      "blackout": "While the blackout is on, a site's own picture choice counts only where it covers more than your usual one.",
+      "group": "Pictures",
+      "groupHelp": "Same as everywhere uses your choices on the Pictures and comments tab.",
+      "on": "On",
+      "off": "Off",
+      "fromGroup": "Set for {group} in Settings. A choice here is for this site only.",
+      "groupOff": "Switched off for {group}. You can turn this site back on by itself.",
+      "groupOffResume": "Turn back on for this site",
+      "siteOffNo": "Hide here, even when its group is switched off",
+      "groups": {
+        "title": "Groups of sites",
+        "help": "A site's own choices below beat its group. On a YouTube live page, Livestream sites beats YouTube.",
+        "livestream": "Livestream sites: Twitch, Kick, YouTube live pages",
+        "youtube": "YouTube"
+      },
+      "menu": {
+        "title": "Pictures on this site",
+        "show": "Show here",
+        "cover": "Cover here",
+        "same": "Same as everywhere",
+        "mixed": "Own mix (see Settings)"
+      }
+    },
     "moreChoices": "Only part of this site",
     "previewAbove": "A normal post above",
     "previewBelow": "A normal post below",
@@ -444,10 +639,13 @@
       "help": "Hides a picture when its caption or file name gives something away. A spoiler shown only inside the picture can still get through."
     },
     "hideMediaPosts": {
-      "name": "Hide picture and video posts on pages about GTA 6",
+      "name": "Hide picture and video posts on pages that mention GTA 6",
       "help": "On a page about the game, a post that is only a picture or clip, with almost no words, is hidden in case it shows a spoiler. Harmless clips go too. Not in Casual."
     },
     "mediaNearGame": "Pictures next to the name of the game",
+    "reactionGifs": "Reaction GIFs from a GIF library",
+    "replyGifs": "GIFs posted as a reply",
+    "replyPhotos": "Photos posted as a reply",
     "customWords": {
       "name": "My own words to hide",
       "help": "Anything you add is hidden on every page. Tip: select text on any page, right-click, and choose \"Hide this on every page\".",
@@ -460,14 +658,28 @@
     },
     "blockedAccounts": {
       "name": "My own accounts to hide",
-      "help": "Paste a link to the account, such as youtube.com/@name, x.com/name or reddit.com/user/name. TikTok, Instagram, Twitch and Kick work too. Everything it posts is hidden on every site.",
+      "help": "Paste a link to the account. Formats: youtube.com/@name, x.com/name, reddit.com/user/name, tiktok.com/@name, instagram.com/name, twitch.tv/name, kick.com/name. Everything it posts is hidden on every site.",
       "placeholder": "Paste a link to an account, then press Add",
-      "bad": "Paste the link to the account's page, such as x.com/name."
+      "bad": "That is not an account link. Try one of: youtube.com/@name, x.com/name, reddit.com/user/name, tiktok.com/@name, instagram.com/name, twitch.tv/name, kick.com/name."
     },
     "allowWords": {
       "name": "Words never to hide",
-      "help": "If something you want to see keeps getting hidden, add the word here.",
-      "placeholder": "Type a word or phrase, then press Add"
+      "help": "If something you want to see keeps getting hidden, add the word here. Tip: select the word on any page, right-click, and choose \"Never hide this word\".",
+      "placeholder": "Type a word or phrase, then press Add",
+      "refused": "The game's name can't be allowed. Use \"Never hide this account\" or add the site to Safe places instead.",
+      "ignored": "ignored: the game's name",
+      "refusedNotice": "Right-click \"Never hide this word\" did not add the word you picked: the game's name can't be allowed. Use \"Never hide this account\" or add the site to Safe places instead.",
+      "dismiss": "Dismiss this notice"
+    },
+    "allowAccounts": {
+      "name": "Accounts never to hide",
+      "help": "Posts from these known spoiler accounts are no longer hidden just for who posted them. Their words are still checked like anyone else's. Each one counts on its own site only. An account on \"My own accounts to hide\" stays hidden: take it off that list to see it again. Tip: right-click the account's name on any page and choose \"Never hide this account\".",
+      "placeholder": "Paste a link to an account, then press Add",
+      "bad": "That is not an account link. Try one of: youtube.com/@name, x.com/name, reddit.com/user/name, tiktok.com/@name, instagram.com/name, twitch.tv/name, kick.com/name."
+    },
+    "neverHideMenu": {
+      "word": "Never hide this word",
+      "account": "Never hide this account"
     },
     "hintWords": {
       "name": "Words that show a post is about the game",
@@ -498,7 +710,7 @@
     },
     "blockSites": {
       "name": "Places to be extra careful",
-      "help": "Here, a post is hidden if it has any spoiler-list name you chose to hide, such as Lester or The Jewel Store Job in GTA V, even if GTA 6 is never mentioned. Good for places full of spoilers.",
+      "help": "Here, a post is hidden if it has any spoiler-list name you chose to hide, such as Lester or The Jewel Store Job in GTA V. A post saying only \"Lester\" would be hidden, even if GTA 6 is never mentioned. Good for places full of spoilers.",
       "placeholder": "Paste a web address or type a site",
       "examples": [
         [
@@ -534,8 +746,8 @@
     "siteCoveredBy": "Already covered by {label}.",
     "siteEmpty": "Nothing here yet.",
     "categories": {
-      "name": "Leak and trailer posts, and big groups",
-      "help": "A switch for a whole group at once. The first choice leaves it to your other settings: What to hide picks the names, and the block out method picks how careful to be. Posts about leaks and trailers are only here: pick \"Never hide this kind\" if you want to see them."
+      "name": "Hide by topic",
+      "help": "One switch for each topic below: Hide, Only when the page mentions GTA 6, or Show. \"Hide\" follows What to hide and the block out method. Posts about leaks and trailers have only Hide and Show, and are only controlled here, so pick \"Show\" if you want to see them."
     },
     "protect": {
       "name": "What to hide",
@@ -550,10 +762,23 @@
       "own": "Throw me a bone"
     },
     "updates": {
-      "name": "Keeping the spoiler list up to date",
-      "help": "A job keeps watching the GTA wikis. When a new page or edit appears, it reads the name, sorts it into a category like the ones in What to hide, and adds it to the list. Your browser only downloads that finished list; nothing about your browsing is sent anywhere.",
+      "name": "Spoiler update frequency",
+      "help": "How often the extension downloads the newest spoiler list. A job watches the GTA wikis and adds new names; your browser only downloads the finished list.",
       "button": "Update spoiler list now",
-      "privacyNote": "The list is never shown, so updating can not spoil you."
+      "privacyNote": "The list is never shown, so updating can not spoil you.",
+      "failed": "The last try, {when}, did not work: {why}",
+      "failedWhy": {
+        "network": "the update server could not be reached.",
+        "invalid": "the downloaded list was not valid, so the old one was kept."
+      },
+      "result": {
+        "updated": "Updated to version {version}.",
+        "updatedOne": "Updated to version {version}: 1 new term.",
+        "updatedMany": "Updated to version {version}: {added} new terms.",
+        "current": "Already up to date (version {version}).",
+        "wait": "You just checked. Please wait a minute before checking again.",
+        "error": "The update did not work: {why}"
+      }
     },
     "hidden": {
       "none": "Nothing hidden on this page.",
@@ -573,7 +798,6 @@
     "strictHere": "Extra careful here: {label}",
     "coversHidden": "Hidden",
     "coversMention": "Only when the page mentions GTA 6",
-    "coversShown": "Not hidden",
-    "popupThanks": "Made possible by the gta.wiki team."
+    "coversShown": "Not hidden"
   }
 }

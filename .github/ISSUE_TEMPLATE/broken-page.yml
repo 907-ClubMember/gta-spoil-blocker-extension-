@@ -1,0 +1,66 @@
+name: Broken page
+description: The extension breaks or misplaces a page.
+title: "Report: broken page"
+labels: ["form:broken-page"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never type a name, a spoiler or any story detail from the game.** This form is read by a program, not a person. Pick the options and paste the page link. Anything else you type may be held back and never shown.
+  - type: dropdown
+    id: site
+    attributes:
+      label: Site
+      options:
+        - Reddit
+        - YouTube
+        - X
+        - Facebook
+        - Instagram
+        - TikTok
+        - Twitch
+        - Kick
+        - Discord
+        - Steam
+        - Google
+        - Bluesky
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: extversion
+    attributes:
+      label: Extension version
+      description: "Numbers only, from the popup, for example 0.1.2"
+    validations:
+      required: true
+  - type: input
+    id: listversion
+    attributes:
+      label: List version
+      description: "Numbers only, from the popup"
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Page link
+      description: "An https link to the page, on one of the sites above"
+    validations:
+      required: true
+  - type: textarea
+    id: layout
+    attributes:
+      label: Describe the layout, not the words (optional)
+      description: "For example: the box under the title stays blurred. No names, no story."
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I checked the popup's Why panel
+          required: true
+        - label: My list is up to date
+          required: true
+        - label: I typed no names from the game
+          required: true

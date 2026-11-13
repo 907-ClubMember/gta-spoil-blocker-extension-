@@ -1,3 +1,4 @@
+import { parseVersion } from '../versions';
 import { CATEGORIES, isKind, type SpoilerList, type Term } from '../types';
 
 /** Published file shape: payload is base64 of UTF-8 JSON. Scrambling against casual reading, not secrecy. */
@@ -6,6 +7,10 @@ export interface PublishedList {
   d: string;
   /** Release day (YYYY-MM-DD), optional; an extension that does not know it ignores it. */
   r?: string;
+  /** 1 = deliberately much smaller than the list before (a rollback), optional; an extension that does not know it ignores it. */
+  s?: 1;
+  /** The newest version of the extension (a plain x.y.z), optional; the popup tells people on an older build. */
+  n?: string;
 }
 
 export const MAX_LIST_BYTES = 2_000_000;
@@ -20,6 +25,14 @@ export const MAX_TERMS = 20_000;
 
 /** Hourly publishing takes over ten years to move this far; only a mistake or an attack does it in one step. */
 export const MAX_VERSION_JUMP = 100_000;
+
+/** Below this many names a list is too small for the shrink check to mean anything. */
+export const MIN_LIST_FOR_SHRINK_CHECK = 100;
+/**
+ * A list of `next` names after one of `current` names has collapsed: under a quarter of a list worth checking. The extension
+ * refuses such a list unless it is marked as deliberate (SpoilerList.shrink), and the job never publishes one unmarked.
+ */
+export const collapses = (current: number, next: number): boolean => current >= MIN_LIST_FOR_SHRINK_CHECK && next < current / 4;
 
 /** Letters, marks, digits, single spaces and plain name punctuation. No control, zero-width, bidi or markup characters. */
 const SAFE_TERM = /^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N} '\u2019&.,:!?#-]*$/u;
@@ -37,7 +50,7 @@ export class ListError extends Error {}
 
 export function encodeList(list: SpoilerList): PublishedList {
   const json = JSON.stringify(list.terms);
-  return { v: list.v, d: Buffer.from(json, 'utf8').toString('base64'), ...(list.release ? { r: list.release } : {}) };
+  return { v: list.v, d: Buffer.from(json, 'utf8').toString('base64'), ...(list.release ? { r: list.release } : {}), ...(list.shrink ? { s: 1 as const } : {}), ...(parseVersion(list.latest) ? { n: list.latest } : {}) };
 }
 
 function fromBase64(b64: string): string {
@@ -88,7 +101,7 @@ export function decodeList(raw: string, storedVersion: number): SpoilerList {
   for (const t of terms) {
     // A bad entry is dropped, not fatal: one odd entry, or a kind only newer versions know, must not block every other update.
     if (!t || typeof t !== 'object') continue;
-    const { t: text, c, s, tr, k, l, o, r, f } = t as Record<string, unknown>;
+    const { t: text, c, s, tr, k, l, o, r, f, p } = t as Record<string, unknown>;
     if (typeof text !== 'string') continue;
     if (typeof c !== 'string' || !cats.has(c)) continue;
     if (s !== 'strong' && s !== 'weak' && s !== 'context') continue;
@@ -99,14 +112,19 @@ export function decodeList(raw: string, storedVersion: number): SpoilerList {
     const term: Term = { t: safe, c: c as Term['c'], s };
     if (tr === true) term.tr = true;
     if (o === true) term.o = true;
-    if (r === true) term.r = true;
+    // A marker is never a made-up person name (it would otherwise be turned into a weak name by the rare-name setting).
+    if (r === true && s !== 'context') term.r = true;
     if (f === true && s !== 'context') term.f = true;
+    // A marker is never a person: the game's own name must not be narrowed.
+    if (p === true && s !== 'context') term.p = true;
     if (isKind(k)) term.k = k;
     if (l === 1 || l === 2 || l === 3) term.l = l;
     clean.push(term);
   }
   const r = (pub as Record<string, unknown>).r;
-  return { v: v as number, terms: clean, ...(isRealDate(r) ? { release: r } : {}) };
+  const shrink = (pub as Record<string, unknown>).s === 1;
+  const n = (pub as Record<string, unknown>).n;
+  return { v: v as number, terms: clean, ...(isRealDate(r) ? { release: r } : {}), ...(shrink ? { shrink: true as const } : {}), ...(typeof n === 'string' && parseVersion(n) ? { latest: n } : {}) };
 }
 
 /** Counts per category, safe to show in the UI. */

@@ -1,12 +1,19 @@
 import '../../ui/style.css';
 import { el, restoreFocus, rememberFocus, twoPress } from '../../ui/dom';
-import { DONATE_URL, MAKER_URL } from '../../donate';
+import { DONATE_URL, MAKER_URL, RELEASES_URL } from '../../donate';
 import { HIDDEN_GROUP_TEXT, PROTECT_TEXT, TEXT } from '../../text';
-import { DEFAULT_SETTINGS, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, patternChoices, patternLabel, saveSettings, settingsForUrl, urlMatches, type Settings, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, patternChoices, patternLabel, saveSettings, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
 import { cleanTally, describeTally, type HiddenTally } from '../../hidden';
+import { builtinList, chooseList, loadMeta, savedList } from '../../list/store';
+import { staleNotice } from '../../list/stale';
+import { RELEASE_NOTES } from '../../text';
+import { installKindOf, isNewerVersion, noteToShow, showUpdateSteps } from '../../versions';
+import { BETA } from '../../beta-flag';
+import { BETA_MENU_TITLE, POPUP_PICK_MSG } from '../../beta/strings';
 
 const app = document.getElementById('app')!;
 let moreOpen = false;
+let updateOpen = false;
 let countTimer = 0;
 
 async function activeTab() {
@@ -42,6 +49,8 @@ async function render() {
   // A site's own "never hide anything here" setting, under its longest matching name.
   const siteOffKeys = host ? Object.keys(s.sites).filter((k) => s.sites[k]!.off && (host === k || host.endsWith(`.${k}`))) : [];
   const offHere = !!host && s.enabled && !settingsForUrl(s, tabUrl).enabled;
+  // Switched off for a group of sites (Livestream sites, YouTube): this site alone can be turned back on (its own off: false).
+  const offGroup = host && !safeEntries.length && !siteOffKeys.length ? groupSwitchedOff(s, tabUrl) : undefined;
 
   const update = async (patch: Partial<Settings>) => {
     await saveSettings(normalizeSettings({ ...(await loadSettings()), ...patch }));
@@ -57,6 +66,34 @@ async function render() {
   const statusLine = el('p', { class: `status ${on ? 'on' : 'off'}`, role: 'status' }, status.on && offHere ? (safeEntries.length && safeEntries.every((p) => p.kind === 'page') ? TEXT.masterOffPage : TEXT.masterOffHere) : status.text);
 
   const body: Node[] = [head, statusLine];
+  // A list that has not updated for a day, or only the built-in one: say so, so a quiet failure is not mistaken for full cover.
+  const saved = await savedList();
+  const stale = staleNotice(await loadMeta(), chooseList(saved, builtinList()).savedInUse, now);
+  if (stale) body.push(el('p', { class: 'warn stale', role: 'status' }, stale.kind === 'builtin' ? TEXT.listStale.builtin : stale.since ? TEXT.listStaleSince(shortTime(stale.since)) : TEXT.listStale.never));
+
+  // What changed, once after an update; and a newer version, when the list says there is one.
+  const version = chrome.runtime.getManifest().version;
+  const note = noteToShow((await chrome.storage.local.get('whatsNew')).whatsNew, version, RELEASE_NOTES);
+  if (note) {
+    const gotIt = el('button', { class: 'wide' }, TEXT.whatsNew.dismiss);
+    gotIt.addEventListener('click', async () => { await chrome.storage.local.remove('whatsNew'); await render(); });
+    body.push(el('div', { class: 'whats-new', role: 'status' }, el('p', { class: 'mini-head' }, TEXT.whatsNewTitle(version)), el('ul', {}, ...note.map((t) => el('li', {}, t))), gotIt));
+  }
+  const latest = saved?.latest;
+  if (isNewerVersion(latest, version)) {
+    // (A call that throws, or an API that is missing, means the store text.)
+    let installType: string | undefined;
+    try { installType = (await chrome.management?.getSelf?.())?.installType; } catch { /* the store text */ }
+    const kind = installKindOf(installType);
+    body.push(el('p', { class: 'help update', role: 'status' }, TEXT.updateLine(latest!), ' ', TEXT.updateAvailable[kind]));
+    if (showUpdateSteps(kind)) {
+      const [before = '', after = ''] = TEXT.howToUpdate.step1.split('{link}');
+      const a = el('a', { href: RELEASES_URL, target: '_blank', rel: 'noreferrer noopener' }, TEXT.howToUpdate.link);
+      const how = el('details', { class: 'how-update', open: updateOpen }, el('summary', {}, TEXT.howToUpdate.button), el('ol', {}, el('li', {}, before, a, after), el('li', {}, TEXT.howToUpdate.step2), el('li', {}, TEXT.howToUpdate.step3)), el('p', { class: 'help' }, TEXT.howToUpdate.stay));
+      how.addEventListener('toggle', () => (updateOpen = how.open));
+      body.push(how);
+    }
+  }
 
   // Finished the story, or outside the set time: the switch can't help, so offer the way back here.
   if (s.enabled && !status.on && s.pausedUntil <= now) {
@@ -136,6 +173,13 @@ async function render() {
       sites: Object.fromEntries(Object.entries(s.sites).map(([k, o]) => [k, siteOffKeys.includes(k) ? { ...o, off: undefined } : o])),
     }));
     body.push(el('hr'), ...safeEntries.map((p) => el('p', { class: 'safe-why help' }, TEXT.safeWhy(p.kind, patternLabel(p)))), resume);
+  } else if (host && offGroup) {
+    // The site entry that already applies to the host (the longest matching name), or a new one.
+    const key = Object.keys(s.sites).filter((k) => host === k || host.endsWith(`.${k}`)).sort((a, b) => b.length - a.length)[0] ?? host;
+    const resume = el('button', { class: 'wide' }, TEXT.sitePictures.groupOffResume);
+    resume.addEventListener('click', () => update({ sites: { ...s.sites, [key]: { ...s.sites[key], off: false } } }));
+    const note = el('p', { class: 'help group-off' }, TEXT.sitePictures.groupOff.replace('{group}', TEXT.sitePictures.groups[offGroup]));
+    body.push(el('hr'), note, resume);
   } else if (host) {
     const choices = patternChoices(tabUrl).slice(0, 4);
     const whole = choices[choices.length - 1]!;
@@ -160,6 +204,27 @@ async function render() {
     }
   }
 
+  // Pictures on this site in one tap: covered, shown, or the usual settings. settings.ts SITE_PICTURES says what each one sets.
+  if (host && on) {
+    const picked = sitePicturesChoice(s, host);
+    const group = el('div', { class: 'chips site-pictures', role: 'radiogroup', ariaLabel: TEXT.sitePictures.name });
+    for (const c of ['covered', 'shown', 'same'] as const) {
+      const r = el('input', { type: 'radio', name: 'site-pictures', value: c, checked: picked === c });
+      r.addEventListener('change', async () => update({ sites: withSitePictures(await loadSettings(), host, c) }));
+      group.append(el('label', { class: 'chip' }, r, ` ${TEXT.sitePictures[c]}`));
+    }
+    body.push(el('p', { class: 'mini-head' }, TEXT.sitePictures.name), group, el('p', { class: 'help' }, TEXT.sitePictures.help));
+    if (picked === 'mixed') body.push(el('p', { class: 'help' }, TEXT.sitePictures.mixed));
+    // A group (Livestream sites, YouTube) decides some of the pictures here: say which, as the choice above is for this site only.
+    const decider = groupDeciding(s, tabUrl);
+    if (decider) {
+      const note = el('p', { class: 'help site-pictures-group' }, TEXT.sitePictures.fromGroup.replace('{group}', TEXT.sitePictures.groups[decider]));
+      note.dataset.group = decider;
+      body.push(note);
+    }
+    if (blackoutOn(s, chooseList(saved, builtinList()).list.release, now)) body.push(el('p', { class: 'help' }, TEXT.sitePictures.blackout));
+  }
+
   // Pause everywhere for a while. Hiding comes back by itself when the time is up.
   if (s.enabled && s.pausedUntil <= now && status.on) {
     const row = el('div', { class: 'add', role: 'group', ariaLabel: TEXT.pauseName });
@@ -176,10 +241,22 @@ async function render() {
     body.push(el('p', { class: 'mini-head' }, TEXT.pauseName), row);
   }
 
+  // Beta only: "This looks wrong" for pages that replace the right-click menu (the page then waits for a click on the wrong part).
+  if (BETA) {
+    const wrong = el('button', { class: 'wide' }, BETA_MENU_TITLE);
+    wrong.addEventListener('click', async () => {
+      const t = await activeTab();
+      if (t?.id == null) return;
+      await chrome.runtime.sendMessage({ type: POPUP_PICK_MSG, tabId: t.id }).catch(() => {});
+      window.close();
+    });
+    body.push(el('hr'), wrong);
+  }
+
   const open = el('button', {}, TEXT.openSettings);
   open.addEventListener('click', () => chrome.runtime.openOptionsPage());
   const out = (href: string, text: string) => el('a', { href, target: '_blank', rel: 'noreferrer noopener' }, text);
-  body.push(el('hr'), el('div', { class: 'foot' }, open, el('div', { class: 'foot-links' }, out(DONATE_URL, TEXT.donate.link), out(MAKER_URL, TEXT.donate.own))), el('p', { class: 'help' }, TEXT.popupThanks));
+  body.push(el('hr'), el('div', { class: 'foot' }, open, el('div', { class: 'foot-links' }, out(DONATE_URL, TEXT.donate.link), out(MAKER_URL, TEXT.donate.own))));
 
   app.className = 'pop';
   app.replaceChildren(...body);

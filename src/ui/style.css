@@ -22,6 +22,7 @@ select{width:100%}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;gap:6px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:13px;max-width:100%;overflow-wrap:anywhere}
 .chip button{padding:0 7px;border-radius:999px;line-height:1.4}
+.site-pictures .chip{padding:4px 12px 4px 8px;cursor:pointer}
 .status{font-weight:600}.status.on{color:var(--ok)}.status.off{color:var(--warn)}
 .msg{font-size:13px;margin-top:6px}
 .msg:empty{margin:0}
@@ -98,6 +99,12 @@ input.switch:checked::before{left:18px}
 .pop hr,hr{width:100%;border:0;border-top:1px solid var(--line);margin:4px 0}
 .count{font-size:20px;font-weight:600}
 .mini-head{font-weight:600;font-size:13px}
+.card.jump{outline:3px solid var(--accent,#3b82f6);outline-offset:3px;transition:outline-color .6s}
+.whats-new{display:flex;flex-direction:column;gap:6px;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:8px}
+.whats-new ul{margin:0;padding-left:18px}
+.how-update{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.how-update summary{cursor:pointer}
+.how-update ol{margin:6px 0;padding-left:18px}
 .field{display:flex;flex-direction:column;gap:3px;font-size:13px;font-weight:600}
 .field select{font-weight:400}
 button.wide{width:100%}

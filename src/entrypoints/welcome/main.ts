@@ -20,9 +20,9 @@ async function render() {
     });
     return b;
   }));
-  const launch = el('select', { ariaLabel: TEXT.welcome.launchPick }, ...([0, 3, 7, 14] as const).map((n) => el('option', { value: String(n), selected: s.blackoutDays === n }, BLACKOUT_TEXT.options[n])));
+  const launch = el('select', { ariaLabel: TEXT.welcome.launchPick }, ...([0, 3, 7, 14, -1] as const).map((n) => el('option', { value: String(n), selected: s.blackoutDays === n }, BLACKOUT_TEXT.options[n])));
   launch.addEventListener('change', async () => {
-    await saveSettings(normalizeSettings({ ...(await loadSettings()), blackoutDays: Number(launch.value) as 0 | 3 | 7 | 14 }));
+    await saveSettings(normalizeSettings({ ...(await loadSettings()), blackoutDays: Number(launch.value) as -1 | 0 | 3 | 7 | 14 }));
     saved = true;
     await render();
   });

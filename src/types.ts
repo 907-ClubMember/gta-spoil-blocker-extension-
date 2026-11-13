@@ -21,7 +21,7 @@ export interface Term {
   /** Raised level: the name itself gives away plot, or how/when/what you get. Never lowers the kind's level. */
   l?: 1 | 2 | 3;
   /**
-   * Ordinary: the name is also everyday text (a phrase, a common name), as the job's describe step judged it
+   * Ordinary: the name is also everyday text (a phrase, a common name), as the list builder judged it
    * (distinctive: no). A hint word beside it is not enough to tie a post to the game; it needs a real game signal.
    */
   o?: true;
@@ -31,11 +31,21 @@ export interface Term {
    */
   r?: true;
   /**
-   * Safe to match loosely (2026-11-04): every word of six letters or more in the name is made up (no English word, no real name),
+   * Safe to match loosely: every word of six letters or more in the name is made up (no English word, no real name),
    * so a misspelling, plural or star-censored spelling of it can only mean this name. Such matches never count as a game sign and
    * are weak matches: they hide with a game mention, or anywhere on Strict (as every weak name does).
    */
   f?: true;
+  /**
+   * A real person (the list builder checked Wikipedia) who appears in the game. The name alone never hides: it counts only with a
+   * story word beside it, in text that is tied to the game. It never marks a post as being about the game either.
+   */
+  p?: true;
+  /**
+   * Set while shaping, never in the list: the user set this name's kind or topic to "Only when the page mentions GTA 6", so it
+   * hides only on a page about the game, not because the post or thread beside it names the game.
+   */
+  pg?: true;
 }
 
 /** The published list, after decoding. */
@@ -44,6 +54,13 @@ export interface SpoilerList {
   terms: Term[];
   /** The game's release day (YYYY-MM-DD), when the list publishes one: the launch-week blackout counts from it. */
   release?: string;
+  /**
+   * Deliberately much smaller than the list before it (a rollback): the extension takes it although it would refuse a collapsed
+   * list as broken (store.ts). Older builds ignore the mark.
+   */
+  shrink?: true;
+  /** The newest version of the extension, when the list publishes it (a plain x.y.z): the popup says so when this build is older. */
+  latest?: string;
 }
 
 /**

@@ -14,14 +14,15 @@ export const REACTION_EMOJI: Record<string, string> = {
   '💔': 'emojibrokenheart',
 };
 
+// "boss" and "dead" are left out: on real fan posts they fired mostly on ordinary game talk and unrelated text.
 export const DEFAULT_HINTS: string[] = [
   // the game and its story
-  'mission', 'final mission', 'last mission', 'heist', 'cutscene', 'story mode', 'playthrough', 'walkthrough', 'boss', 'final boss', 'boss fight',
+  'mission', 'final mission', 'last mission', 'heist', 'cutscene', 'story mode', 'playthrough', 'walkthrough', 'final boss', 'boss fight',
   'chapter', 'side quest', 'protagonist', 'villain', 'antagonist', 'spoiler', 'spoilers', 'leak', 'leaked', 'trailer', 'gameplay', 'Rockstar',
   // how it ends
   'ending', 'endings', 'true ending', 'good ending', 'bad ending', 'secret ending', 'post credits', 'credits scene', 'epilogue', 'finale', 'twist', 'plot twist',
   // who lives and who dies
-  'dies', 'died', 'dead', 'death', 'dying', 'killed', 'kills', 'murdered', 'survives', 'survived', 'sacrifice', 'funeral', 'rip',
+  'dies', 'died', 'death', 'dying', 'killed', 'kills', 'murdered', 'survives', 'survived', 'sacrifice', 'funeral', 'rip',
   // who turns on whom, and what comes out
   'betrayed', 'betrays', 'betrayal', 'traitor', 'snitch', 'double cross', 'backstab', 'turns out', 'all along', 'the whole time', 'behind it all', 'mastermind',
   'real identity', 'revealed',
@@ -31,15 +32,35 @@ export const DEFAULT_HINTS: string[] = [
 export const HINT_REACH = 15;
 
 /**
+ * Hint words that say nothing about the story. A real person's name (Term.p) needs a story word beside it, so these do not count for
+ * it: an announcement or news about the game ("will appear in the trailer") is not a plot detail.
+ */
+export const NOT_STORY_HINTS: readonly string[] = ['trailer', 'leak', 'leaked', 'gameplay', 'Rockstar', 'spoiler', 'spoilers'];
+
+/**
+ * More story words, for a real person's name (Term.p) only: common in plot talk about a character and rare in ordinary news (a count of
+ * the practice games' character pages against news and social text, 2026-11-06). Exact forms only, no other endings.
+ * Not "shot" or "arrested": both are everyday news words. They never count for other names, and the user's own hint list does not
+ * change them.
+ */
+export const PERSON_STORY_WORDS: readonly string[] = [
+  'ambush', 'ambushed', 'shootout', 'hostage', 'kidnapped', 'rescued', 'betrayed', 'betrays', 'betraying', 'betrayal', 'traitor',
+  'informant', 'accomplice', 'murdered', 'revenge', 'confronts', 'spared',
+];
+
+/**
  * Words that make a post a spoiler when it also names the game, with no listed name needed:
  * "GAME all endings explained". Kept narrow on purpose. Praise, slang and swearing are not here,
  * so hype ("GAME is going to be peak") is left alone. Grouped by the category switch that controls them.
  */
+// "playthrough" is a hint word only: as a spoiler word it hid stream and video titles.
 export const SPOILER_WORDS = {
   story: [
     'ending', 'endings', 'final mission', 'finale', 'dies', 'died', 'death', 'deaths', 'killed', 'kills', 'betrayal', 'betrays', 'betrayed',
-    'twist', 'spoiler', 'spoilers', 'cutscene', 'cutscenes', 'secret ending', 'all missions', 'full story', 'walkthrough', 'playthrough',
+    'twist', 'spoiler', 'spoilers', 'cutscene', 'cutscenes', 'secret ending', 'all missions', 'full story', 'walkthrough',
     'boss fight', 'explained',
+    // Seen on a shared list of words to mute on X. A leak of the story, unlike a plain "leak" (news), is a spoiler with the game.
+    'last mission', 'story leak', 'story leaks', 'story leaked', 'plot leak', 'plot leaks', 'plot leaked',
   ],
   trailers: ['trailer', 'trailers', 'teaser'],
   leaks: ['leak', 'leaks', 'leaked'],

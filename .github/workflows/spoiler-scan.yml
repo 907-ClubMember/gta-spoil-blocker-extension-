@@ -1,6 +1,7 @@
 name: Spoiler scan
 # Every new or edited issue, comment and pull request is checked against the published list (.github/scripts/spoiler-scan.ts).
-# A match is taken out of sight automatically: the maintainer does not read GTA 6 content after release. Logs show counts only.
+# A match, or free text from a new account, is held: an issue moves whole to the private quarantine repo, a comment is copied there
+# and removed here. Nothing is deleted or closed unread. The maintainer does not read GTA 6 content after release; logs show counts only.
 # Safe on pull requests from forks: it checks out this repo's own default branch, never the pull request's code, and reads the
 # pull request's changed lines through the API.
 on:
@@ -22,6 +23,9 @@ permissions:
 # No concurrency group: GitHub would cancel a waiting scan when a third event arrives, leaving that one unchecked.
 jobs:
   scan:
+    # Inert anywhere but the public repo (this file also sits in the private repo's .github): the quarantine move and the
+    # maintainer-reading rules only make sense on the public repo.
+    if: github.repository == '907-ClubMember/gta-spoil-blocker-extension-'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -35,4 +39,10 @@ jobs:
       - name: Scan
         env:
           GH_TOKEN: ${{ github.token }}
+          # A fine-grained token, Issues read/write on this repo and the quarantine repo only. Expires: see docs/INTAKE.md.
+          QUARANTINE_TOKEN: ${{ secrets.QUARANTINE_TOKEN }}
+          QUARANTINE_REPO: ${{ vars.QUARANTINE_REPO }}
+          INTAKE_STRICT: ${{ vars.INTAKE_STRICT }}
+          INTAKE_TOWER_REQUIRED: ${{ vars.INTAKE_TOWER_REQUIRED }}
+          INTAKE_HEARTBEAT_ISSUE: ${{ vars.INTAKE_HEARTBEAT_ISSUE }}
         run: npx tsx .github/scripts/spoiler-scan.ts

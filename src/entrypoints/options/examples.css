@@ -1,0 +1,37 @@
+/* The made-up examples under each choice on the options page. The cover pill is the page's own label look (#23262a). */
+.ex{margin:6px 0 14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:12px;line-height:1.35}
+.ex-head{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;justify-content:space-between;margin:0 0 6px}
+.ex-title{color:var(--muted);font-weight:600}
+.ex-legend{display:flex;gap:10px}
+.ex-key{display:inline-flex;align-items:center;gap:5px;color:var(--fg)}
+.ex-key::before{content:"";width:16px;height:10px;border-radius:3px;flex:none}
+.ex-key.covered::before{background:repeating-linear-gradient(135deg,#23262a 0 3px,#4b5158 3px 6px);border:1px dashed var(--muted)}
+.ex-key.shown::before{background:var(--card);border:1px solid var(--muted);border-left:3px solid var(--ok)}
+.ex-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.ex-card{border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--card);display:flex;flex-direction:column;gap:4px;min-width:0}
+.ex-where{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.02em}
+.ex-bit{position:relative;border-radius:4px;padding:4px 6px;overflow:hidden;overflow-wrap:anywhere}
+.ex-bit.shown{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--ok)}
+.ex-bit.covered{border:1px dashed var(--muted);background:var(--bg);min-height:30px}
+.ex-under{filter:blur(4px);user-select:none}
+.ex-bit.light .ex-under{filter:blur(1.5px)}
+.ex-pill{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;background:#23262a;color:#fff;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;box-shadow:0 0 0 1px rgba(255,255,255,.35)}
+.ex-bit.line{min-height:0;padding:2px 4px}
+.ex-bit.line .ex-pill{position:static;transform:none;display:inline-block;opacity:.85}
+.ex-bit.gone{border:1px dashed var(--line);color:var(--muted);font-style:italic;text-align:center;padding:3px}
+.ex-pic{display:flex;flex-direction:column;gap:3px}
+.ex-art{display:block;width:100%;max-width:150px;height:34px;border-radius:3px;background:radial-gradient(circle at 78% 30%,#fcd34d 0 6px,transparent 7px),linear-gradient(170deg,transparent 55%,#3f6e4c 56%),linear-gradient(#8fb6d6,#c7dbe9)}
+.ex-cap{color:var(--muted);font-size:11px}
+.ex-say{margin:6px 0 0;color:var(--fg)}
+@media (max-width:480px){.ex-cards{grid-template-columns:1fr}.ex-pill{white-space:normal;text-align:center;max-width:90%}}
+/* High contrast: colours are replaced, so the line style (dashed = covered, solid = visible) carries the meaning. */
+@media (forced-colors:active){
+  .ex-bit.covered,.ex-key.covered::before{border:2px dashed CanvasText}
+  .ex-bit.shown,.ex-key.shown::before{border:1px solid CanvasText;border-left-width:4px}
+  .ex-pill{border:1px solid CanvasText}
+  .ex-art{forced-color-adjust:none}
+}
+/* After a row, the example sits close under it; as the last thing in a card it adds no extra space at the bottom. */
+label.row+.ex{margin-top:0}
+.card>.ex:last-child{margin-bottom:0}
+label.kind+.ex{margin-top:0}

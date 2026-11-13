@@ -1,4 +1,4 @@
-// Has a site changed its layout overnight? (2026-11-04) A site rule names the elements that hold one post. After a redesign it may
+// Has a site changed its layout overnight? A site rule names the elements that hold one post. After a redesign it may
 // match nothing, so the rules that judge a whole post never run, or match one giant wrapper, so one match would cover the whole
 // feed. Either way the general rules do better, so the page is read with them instead. Local only: nothing is sent anywhere.
 import type { Adapter } from './index';
