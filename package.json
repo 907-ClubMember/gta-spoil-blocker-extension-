@@ -1,6 +1,6 @@
 {
   "name": "gta-spoil-blocker-extension",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Hides GTA 6 spoilers across the web. Runs locally; the spoiler list updates itself.",
   "type": "module",

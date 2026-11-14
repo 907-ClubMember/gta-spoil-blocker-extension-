@@ -12,11 +12,44 @@ import { DEBUG_WHY } from '../../debug-flag';
 import { allowDropsGameName } from '../../matcher';
 import { shapeTerms } from '../../levels';
 import { NEVER_HIDE_REFUSED } from '../../never-hide';
-import { SITE_OFF, attachExamples } from './examples';
-import { ANCHOR_TAB, isSettingAnchor, type SettingAnchor } from '../../reason-settings';
+import { SITE_OFF, attachExamples, noEffectBecause } from './examples';
+import { isSettingAnchor } from '../../reason-settings';
+import { KEY_FOLD, PAGE_ANCHOR_TAB, drawSummary, scheduleRedraw, type DiffKey, type PageAnchor } from './summary';
 
 const app = document.getElementById('app')!;
 let s: Settings;
+
+// The "Current settings" panel sits outside the page's redraws (beside it on a wide screen, a bar on top of it on a narrow one),
+// drawn again after every save. Its Hide choice is remembered on this computer only; the panel works without it.
+const HIDE_KEY = 'summaryHidden';
+const summaryBox = el('aside', { className: 'sum-panel', ariaLabel: TEXT.summary.title });
+// After the page in reading order; CSS puts it on the right, or on top as a bar on a narrow screen.
+app.after(summaryBox);
+let summaryHidden = false;
+try { summaryHidden = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* no storage: shown */ }
+let summaryOpen = false;
+function showSummary() {
+  if (!s) return;
+  // Drawn again when a pause or the timer runs out.
+  scheduleRedraw(s, Date.now(), () => void render());
+  drawSummary(summaryBox, s, Date.now(), {
+    hidden: summaryHidden,
+    open: summaryOpen,
+    setHidden: (v) => {
+      summaryHidden = v;
+      try { if (v) localStorage.setItem(HIDE_KEY, '1'); else localStorage.removeItem(HIDE_KEY); } catch { /* not remembered */ }
+      showSummary();
+    },
+    toggleOpen: () => { summaryOpen = !summaryOpen; showSummary(); },
+    jump: (anchor, key) => {
+      summaryOpen = false;
+      showSummary();
+      void jumpTo(anchor, key);
+    },
+    // The popup's "Resume now": the pause cleared.
+    resume: () => void commit({ pausedUntil: 0 }).then(render),
+  });
+}
 
 // The page is drawn again after most changes: which tab and folds are open, and where the keyboard was, must survive that.
 const TABS = ['Basics', 'Pictures and comments', 'My lists', 'Advanced'] as const;
@@ -65,16 +98,18 @@ async function commit(patch: Partial<Settings>) {
   const now = await loadSettings();
   s = normalizeSettings({ ...now, ...patch, preset: patch.preset ?? (touchesLook ? 'custom' : now.preset) });
   await saveSettings(s);
+  showSummary();
 }
 
 /** A change to what is protected. The look preset (Casual, Careful...) is left as it was. */
 async function commitProtect(patch: Partial<Settings>) {
   s = normalizeSettings({ ...(await loadSettings()), ...patch });
   await saveSettings(s);
+  showSummary();
 }
 
 // Each place a cover's "Change this" can open: the card whose title is this one (data-setting), see src/reason-settings.ts.
-const ANCHOR_TITLES: Record<string, SettingAnchor> = {
+const ANCHOR_TITLES: Record<string, PageAnchor> = {
   [TEXT.protect.name]: 'protect',
   [TEXT.picturesTitle]: 'pictures',
   [TEXT.repliesTitle]: 'replies',
@@ -84,6 +119,12 @@ const ANCHOR_TITLES: Record<string, SettingAnchor> = {
   [TEXT.labelTitle]: 'label',
   [TEXT.hintWords.name]: 'hint-words',
   [TEXT.customWords.name]: 'words',
+  // Only the "Current settings" panel links to these.
+  [TEXT.looksTitle]: 'looks',
+  [TEXT.soundTitle]: 'sound',
+  [TEXT.updates.name]: 'updates',
+  [TEXT.blurTitle]: 'blur',
+  [TEXT.toolbarTitle]: 'toolbar',
 };
 
 function section(title: string, help: string, ...body: Node[]) {
@@ -93,23 +134,34 @@ function section(title: string, help: string, ...body: Node[]) {
   return card;
 }
 
-/** Opens the tab the setting is on, scrolls to its card, lights it for a moment and puts the keyboard in it. */
+/**
+ * Opens the tab the setting is on, scrolls to its card, lights it for a moment and puts the keyboard in it: in the control of
+ * `key` (its data-key) when given, else the card's first.
+ */
 let jumpTimer = 0;
-async function jumpTo(anchor: SettingAnchor) {
+async function jumpTo(anchor: PageAnchor, key?: DiffKey) {
   // The finer controls of "how much to protect" (how careful, rare names, trailers) are in a fold: open for this jump.
   const wasFolded = anchor === 'protect' && !opened.has(TEXT.protect.fine);
   if (wasFolded) { opened.add(TEXT.protect.fine); closed.delete(TEXT.protect.fine); }
-  if (tab !== ANCHOR_TAB[anchor] || wasFolded) {
-    tab = ANCHOR_TAB[anchor];
+  const fold = key && KEY_FOLD[key];
+  const foldShut = !!fold && !opened.has(fold);
+  if (fold && foldShut) { opened.add(fold); closed.delete(fold); }
+  if (tab !== PAGE_ANCHOR_TAB[anchor] || wasFolded || foldShut) {
+    tab = PAGE_ANCHOR_TAB[anchor];
     await render();
   }
   const card = document.querySelector<HTMLElement>(`[data-setting="${anchor}"]`);
   if (!card) return;
-  card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const control = key ? card.querySelector<HTMLElement>(`input[data-key="${key}"]:checked`) ?? card.querySelector<HTMLElement>(`[data-key="${key}"]`) : null;
+  (control?.closest<HTMLElement>('label, fieldset') ?? card).scrollIntoView({ block: control ? 'center' : 'start', behavior: 'smooth' });
   card.classList.add('jump');
   window.clearTimeout(jumpTimer);
   jumpTimer = window.setTimeout(() => card.classList.remove('jump'), 2500);
-  card.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true });
+  // A greyed-out control can't take the keyboard: the card does.
+  if ((control as HTMLInputElement | null)?.disabled) {
+    card.tabIndex = -1;
+    card.focus({ preventScroll: true });
+  } else (control ?? card.querySelector<HTMLElement>('input, select, button'))?.focus({ preventScroll: true });
 }
 
 /** Where the cover that sent us here wants to land: a key in storage (set by the background) or #setting=<name> in the address. */
@@ -128,9 +180,13 @@ async function takeJump() {
   if (isSettingAnchor(anchor)) await jumpTo(anchor);
 }
 
+/** The setting each group of round buttons sets, for a jump from the "Current settings" panel. */
+const RADIO_KEY: Record<string, keyof Settings> = { mediaNear: 'mediaNearGame', reactionGifs: 'reactionGifs', replyGifs: 'replyGifs', replyPhotos: 'replyPhotos', replies: 'hideReplies', blur: 'blur', reveal: 'revealMode' };
+
 function radioGroup<T extends string>(name: string, label: string, current: T, options: Record<T, { name: string; help: string }>, onPick: (v: T) => void, sample?: (k: T) => HTMLElement) {
   return [el('fieldset', {}, el('legend', { class: 'sr' }, label), ...(Object.keys(options) as T[]).map((k) => {
     const input = el('input', { type: 'radio', name, value: k, checked: k === current });
+    if (RADIO_KEY[name]) input.dataset.key = RADIO_KEY[name];
     input.addEventListener('change', () => onPick(k));
     const row = choiceRow(input, options[k].name, options[k].help);
     if (sample) row.append(sample(k));
@@ -294,6 +350,12 @@ async function render() {
   const counts = countByCategory(list.terms);
 
   // Two presses, not a browser pop-up: one stray click must not lose someone's settings.
+  // The on/off card: a jump target of the panel too.
+  const masterCard = (...kids: Node[]) => {
+    const c = el('section', { class: 'card' }, ...kids);
+    c.dataset.setting = 'master';
+    return c;
+  };
   const resetBtn = el('button', {}, TEXT.resetButton);
   twoPress(resetBtn, TEXT.resetButton, TEXT.resetConfirm, async () => {
     resetDone = true;
@@ -303,18 +365,30 @@ async function render() {
 
   const master = el('input', { type: 'checkbox', checked: s.enabled, class: 'switch', ariaLabel: TEXT.masterToggle });
   master.setAttribute('role', 'switch');
+  master.dataset.key = 'enabled';
   master.addEventListener('change', () => commit({ enabled: master.checked }).then(render));
 
   const imgs = el('input', { type: 'checkbox', checked: s.hideImages });
-  imgs.addEventListener('change', () => commit({ hideImages: imgs.checked }));
+  imgs.dataset.key = 'hideImages';
+  // Drawn again: the picture posts row below depends on it.
+  imgs.addEventListener('change', () => commit({ hideImages: imgs.checked }).then(render));
 
   const media = el('input', { type: 'checkbox', checked: s.hideMediaPosts });
+  media.dataset.key = 'hideMediaPosts';
   media.addEventListener('change', () => commit({ hideMediaPosts: media.checked }));
+  // Greyed out, with the reason, where it can do nothing at all. "Covered anyway" is only said in its example.
+  const mediaOff = noEffectBecause('hideMediaPosts', s);
+  const mediaRow = choiceRow(media, TEXT.hideMediaPosts.name, TEXT.hideMediaPosts.help);
+  if (mediaOff === 'hideImagesOff' || mediaOff === 'casual') {
+    media.disabled = true;
+    mediaRow.lastElementChild!.append(el('span', { class: 'help' }, TEXT.noEffect[mediaOff]));
+  }
 
   // These two go by a few words in a post, not by names on the list, so a count of list names would mislead.
   const catRows = CATEGORIES.map((c) => {
     const pick = el('select', { ariaLabel: CATEGORY_TEXT[c].name });
     pick.dataset.example = `topic.${c}`;
+    pick.dataset.key = 'categoryModes';
     // Leak and trailer words count the same under Hide and the middle choice, so those two offer only Hide and Show.
     for (const m of Object.keys(CATEGORY_MODE_TEXT) as CategoryMode[]) if (m !== 'mention' || !WORDS_ONLY_TOPICS.has(c)) pick.append(el('option', { value: m, selected: m === s.categoryModes[c] }, CATEGORY_MODE_TEXT[m]));
     pick.addEventListener('change', () => commit({ categoryModes: { ...s.categoryModes, [c]: pick.value as CategoryMode } }));
@@ -328,6 +402,7 @@ async function render() {
     const on = s.protect === k;
     const b = el('button', { class: on ? 'on' : '', title: PROTECT_TEXT[k].help, value: k }, PROTECT_TEXT[k].name);
     b.setAttribute('aria-pressed', String(on));
+    if (on) b.dataset.key = 'protect';
     b.addEventListener('click', async () => {
       if (on) return;
       await commitProtect({ protect: k, kindModes: k === 'custom' ? s.kindModes : undefined, rareNames: k === 'custom' ? s.rareNames : DEFAULT_SETTINGS.rareNames });
@@ -339,6 +414,7 @@ async function render() {
     el('div', { class: 'kinds' }, el('h3', {}, KIND_GROUP_TEXT[g]), ...KINDS.filter((k) => KIND_GROUP[k] === g).map((k) => {
       const pick = el('select', { ariaLabel: KIND_TEXT[k].name });
       pick.dataset.example = `kind.${k}`;
+      pick.dataset.key = 'kindModes';
       for (const m of ['always', 'mention', 'off'] as const) pick.append(el('option', { value: m, selected: m === s.kindModes[k] }, KIND_MODE_TEXT[m]));
       pick.addEventListener('change', async () => {
         await commitProtect({ protect: 'custom', kindModes: { ...s.kindModes, [k]: pick.value as CategoryMode } });
@@ -357,11 +433,13 @@ async function render() {
 
   const ordinary = el('select', { ariaLabel: ORDINARY_TEXT.name });
   ordinary.dataset.example = 'ordinary';
+  ordinary.dataset.key = 'strictness';
   for (const m of ['light', 'medium', 'strict'] as const) ordinary.append(el('option', { value: m, selected: m === s.strictness }, ORDINARY_TEXT.options[m]));
   ordinary.addEventListener('change', () => commit({ strictness: ordinary.value as Settings['strictness'] }).then(render));
   const ordinaryRow = el('div', { class: 'kinds' }, el('h3', {}, 'Names that look like everyday words'), el('label', { class: 'kind' }, el('span', {}, el('b', {}, ORDINARY_TEXT.name), el('span', { class: 'help' }, ORDINARY_TEXT.help)), ordinary));
   const rare = el('select', { ariaLabel: RARE_TEXT.name });
   rare.dataset.example = 'rare';
+  rare.dataset.key = 'rareNames';
   // Unusual names keep their own rule (the post or the page), so their middle choice says so.
   for (const m of ['always', 'mention', 'off'] as const) rare.append(el('option', { value: m, selected: m === s.rareNames }, m === 'mention' ? RARE_TEXT.mention : KIND_MODE_TEXT[m]));
   rare.addEventListener('change', () => commitProtect({ rareNames: rare.value as CategoryMode }).then(render));
@@ -369,6 +447,9 @@ async function render() {
 
   const check = (value: boolean, name: string, help: string, patch: (v: boolean) => Partial<Settings>) => {
     const input = el('input', { type: 'checkbox', checked: value });
+    // The setting it sets, for a jump from the "Current settings" panel.
+    const keys = Object.keys(patch(value));
+    if (keys.length === 1) input.dataset.key = keys[0]!;
     input.addEventListener('change', () => commit(patch(input.checked)).then(render));
     return choiceRow(input, name, help);
   };
@@ -378,6 +459,7 @@ async function render() {
   const PRESET_LOOK = { casual: 'light', careful: 'medium', blackout: 'gone' } as const;
   const presetCards = (Object.keys(PRESET_LOOK) as (keyof typeof PRESET_LOOK)[]).map((k) => {
     const input = el('input', { type: 'radio', name: 'preset', value: k, checked: s.preset === k });
+    input.dataset.key = 'preset';
     input.addEventListener('change', async () => {
       s = applyPreset(await loadSettings(), k);
       await saveSettings(s);
@@ -393,6 +475,7 @@ async function render() {
   const HIDE_LOOK = { blur: 'medium', collapse: 'line', remove: 'gone' } as const;
   const hideCards = (Object.keys(HIDE_LOOK) as (keyof typeof HIDE_LOOK)[]).map((k) => {
     const input = el('input', { type: 'radio', name: 'hide', value: k, checked: s.hideMode === k });
+    input.dataset.key = 'hideMode';
     input.addEventListener('change', () => commit({ hideMode: k }).then(render));
     return lookCard(input, HIDE_MODE_TEXT[k].name, HIDE_MODE_TEXT[k].help, HIDE_LOOK[k]);
   });
@@ -530,6 +613,7 @@ async function render() {
   zonePick.addEventListener('change', () => commit({ blackoutZone: zonePick.value }).then(render));
 
   const sel = el('select', { ariaLabel: TEXT.updates.name });
+  sel.dataset.key = 'updateEvery';
   for (const k of Object.keys(UPDATE_TEXT) as (keyof typeof UPDATE_TEXT)[]) {
     sel.append(el('option', { value: k, selected: k === s.updateEvery }, UPDATE_TEXT[k]));
   }
@@ -585,7 +669,7 @@ async function render() {
     tabs,
     panel('Basics', false,
       ...(fromGithub ? [el('p', { class: 'help install-note' }, TEXT.installedFromGithub)] : []),
-      el('section', { class: 'card' }, el('label', { class: 'row master' }, el('span', {}, el('b', {}, TEXT.masterToggle), el('span', { class: 'help' }, blockingStatus(s, Date.now()).text)), master)),
+      masterCard(el('label', { class: 'row master' }, el('span', {}, el('b', {}, TEXT.masterToggle), el('span', { class: 'help' }, blockingStatus(s, Date.now()).text)), master)),
       el('section', { class: 'card' }, choiceRow(timer, TEXT.timer.name, TEXT.timer.help), ...timerBoxes, ...pauseNote),
       section(TEXT.protect.name, TEXT.protect.help, protectButtons, el('p', {}, PROTECT_TEXT[s.protect].help), covers,
         fold(TEXT.protect.fine, s.protect === 'custom', ...kindGrid, ordinaryRow, rareRow, check(s.allowTrailers, TEXT.allowTrailers.name, TEXT.allowTrailers.help, (v) => ({ allowTrailers: v })), check(s.allowStores, TEXT.allowStores.name, TEXT.allowStores.help, (v) => ({ allowStores: v })))),
@@ -596,7 +680,7 @@ async function render() {
       section(TEXT.resetName, TEXT.resetHelp, resetBtn, el('p', { class: 'msg help', role: 'status' }, resetDone ? TEXT.resetDone : '')),
     ),
     panel('Pictures and comments', true,
-      section(TEXT.picturesTitle, TEXT.picturesHelp, choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), choiceRow(media, TEXT.hideMediaPosts.name, TEXT.hideMediaPosts.help), check(s.thumbsOnly, TEXT.thumbsOnly.name, TEXT.thumbsOnly.help, (v) => ({ thumbsOnly: v })), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', TEXT.mediaNearGame, s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v })), el('p', {}, el('b', {}, TEXT.reactionGifs)), ...radioGroup('reactionGifs', TEXT.reactionGifs, s.reactionGifs, REACTION_GIF_TEXT, (v) => commit({ reactionGifs: v })), el('p', {}, el('b', {}, TEXT.replyGifs)), ...radioGroup('replyGifs', TEXT.replyGifs, s.replyGifs, REPLY_GIF_TEXT, (v) => commit({ replyGifs: v })), el('p', {}, el('b', {}, TEXT.replyPhotos)), ...radioGroup('replyPhotos', TEXT.replyPhotos, s.replyPhotos, REPLY_PHOTO_TEXT, (v) => commit({ replyPhotos: v }))),
+      section(TEXT.picturesTitle, TEXT.picturesHelp, choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), mediaRow, check(s.thumbsOnly, TEXT.thumbsOnly.name, TEXT.thumbsOnly.help, (v) => ({ thumbsOnly: v })), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', TEXT.mediaNearGame, s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v })), el('p', {}, el('b', {}, TEXT.reactionGifs)), ...radioGroup('reactionGifs', TEXT.reactionGifs, s.reactionGifs, REACTION_GIF_TEXT, (v) => commit({ reactionGifs: v })), el('p', {}, el('b', {}, TEXT.replyGifs)), ...radioGroup('replyGifs', TEXT.replyGifs, s.replyGifs, REPLY_GIF_TEXT, (v) => commit({ replyGifs: v })), el('p', {}, el('b', {}, TEXT.replyPhotos)), ...radioGroup('replyPhotos', TEXT.replyPhotos, s.replyPhotos, REPLY_PHOTO_TEXT, (v) => commit({ replyPhotos: v }))),
       section(TEXT.repliesTitle, TEXT.repliesHelp, ...radioGroup('replies', TEXT.repliesTitle, (s.hideReplies ? 'all' : 'own') as 'all' | 'own', REPLIES_TEXT, (v) => commit({ hideReplies: v === 'all' }))),
       section(TEXT.soundTitle, TEXT.soundHelp, check(s.pauseVideo, TEXT.pauseVideo.name, TEXT.pauseVideo.help, (v) => ({ pauseVideo: v })), check(s.muteAudio, TEXT.muteAudio.name, TEXT.muteAudio.help, (v) => ({ muteAudio: v }))),
     ),
@@ -627,6 +711,7 @@ async function render() {
     ),
   );
   attachExamples(app, s);
+  showSummary();
   window.scrollTo(0, y);
   restoreFocus(app, focus);
 }

@@ -13,7 +13,7 @@
       "- Works on YouTube, Reddit, X, Bluesky, Facebook, Instagram, Twitch, Kick, Discord, Steam, Google, Bing, DuckDuckGo, Gmail, and basic support for other websites.",
       "- Hides the whole post or comment, not just a word, so the rest of a thread stays readable.",
       "- Hides everything from known spoiler accounts, whatever their posts say.",
-      "- You choose how much to protect: only the big moments, the main story (the default), or everything.",
+      "- You choose how much to protect: only the big moments, the main story (default), or everything.",
       "- Blur, collapse or remove; click or hold to peek; pause it, or set a day it stops.",
       "- Safe and strict site lists, your own words to hide, and words never to hide.",
       "- The spoiler list updates by itself while the game's wikis fill in.",
@@ -41,7 +41,7 @@
       "help": "The moments that ruin it: story missions, heists, chapters, the last missions, deaths and twists."
     },
     "story": {
-      "name": "Main story (recommended)",
+      "name": "Main story (default)",
       "help": "Main and story characters, gangs, side missions, plus all the big stuff: story missions, heists, deaths and twists."
     },
     "all": {
@@ -59,7 +59,7 @@
       "help": "Hides only clear spoilers, with a light blur. Most pictures stay."
     },
     "careful": {
-      "name": "Careful (recommended)",
+      "name": "Careful (default)",
       "help": "Hides names when a post is about GTA 6, with a strong blur you can click through."
     },
     "blackout": {
@@ -227,7 +227,7 @@
       "help": "Hides only things that clearly give away the story. Fewest mistakes, but vague posts can slip through."
     },
     "medium": {
-      "name": "Medium: recommended",
+      "name": "Medium (default)",
       "help": "Also hides character and place names when the post, its thread, or the page mentions GTA 6, when a post contains two such names, or when a name sits next to a hint word like \"mission\" or \"funeral\". Hides posts that name GTA 6 with a spoiler word such as \"ending\", and picture or video posts on pages about the game. A good balance. For example, a name next to \"funeral\" hints that someone dies."
     },
     "strict": {
@@ -340,14 +340,14 @@
       "help": "On a page whose title, heading or address mentions GTA 6, like a GTA 6 subreddit or a search for GTA 6, every large picture and video is blurred, harmless ones too. Words stay readable, and one click shows a picture. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
     },
     "post": {
-      "name": "Also next to any post that mentions GTA 6: recommended",
+      "name": "Also next to any post that mentions GTA 6 (default)",
       "help": "The choice above, and also any large picture on any page when the post or caption next to it mentions GTA 6, and the small preview picture of such a post on Reddit. Words stay readable, and one click shows a picture. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
     }
   },
   "replyGifs": {
     "show": {
-      "name": "Show them",
-      "help": "A GIF posted as a reply with no words of its own about the game, and with a clean description, is shown, even on a page about the game. Recommended: reaction GIFs are almost always harmless. A game clip posted as a GIF reply stays visible too. The post's own pictures, quoted posts, link cards, galleries and video are still covered."
+      "name": "Show them (default)",
+      "help": "A GIF posted as a reply with no words of its own about the game, and with a clean description, is shown, even on a page about the game. Reaction GIFs are almost always harmless. A game clip posted as a GIF reply stays visible too. The post's own pictures, quoted posts, link cards, galleries and video are still covered."
     },
     "cover": {
       "name": "Cover them like other pictures",
@@ -360,8 +360,8 @@
       "help": "A photo or picture posted as a reply with no words of its own about the game, and with a clean description, is shown, even on a page about the game. A spoiler screenshot posted as a bare reply stays visible too. The post's own pictures, quoted posts, link cards, galleries and video are still covered."
     },
     "cover": {
-      "name": "Cover them like other pictures",
-      "help": "Reply photos are covered like any other picture next to the name of the game. Recommended: it also covers a spoiler screenshot posted as a bare reply, at the price of covering harmless photos too."
+      "name": "Cover them like other pictures (default)",
+      "help": "Reply photos are covered like any other picture next to the name of the game. It also covers a spoiler screenshot posted as a bare reply, at the price of covering harmless photos too."
     }
   },
   "reactionGifs": {
@@ -375,7 +375,7 @@
     }
   },
   "updateSchedule": {
-    "hourly": "Every hour (recommended): new spoilers get hidden within the hour",
+    "hourly": "Every hour (default): new spoilers get hidden within the hour",
     "6h": "Every 6 hours",
     "daily": "Once a day",
     "manual": "Only when I press \"Update spoiler list now\""
@@ -394,6 +394,7 @@
     "topicShown": "the \"{name}\" switch under {section} lets it through",
     "setTo": "\"{name}\" is set to {choice}",
     "trailerNote": "Names already shown in the official trailers stay visible while \"{name}\" is on.",
+    "alsoCovered": "The clip is also covered by the setting below, \"{name}\", so this choice adds little here.",
     "siteOnly": "This is this site's own choice: other sites keep the one on the Pictures and comments tab.",
     "peopleNote": "A real person who appears in the game is covered only next to a story word such as \"dies\".",
     "kindNames": {
@@ -464,6 +465,11 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_5": [
+      "Settings has a new Current settings panel: what is on, what you changed, and whether hiding is paused. It stays in view on every tab.",
+      "\"Hide picture and video posts\" is explained more clearly, and is greyed out, with the reason, when it can't do anything.",
+      "Where Settings names the choice you start with, it now says \"(default)\" instead of \"recommended\"."
     ],
     "v0_1_4": [
       "Turn off on this page: one click in the popup, with Undo.",
@@ -650,7 +656,96 @@
     },
     "hideMediaPosts": {
       "name": "Hide picture and video posts on pages that mention GTA 6",
-      "help": "On a page about the game, a post that is only a picture or clip, with almost no words, is hidden in case it shows a spoiler. Harmless clips go too. Not in Casual."
+      "help": "On a page about the game, a post that is only a picture or clip, with almost no words, is hidden in case it shows a spoiler. Harmless clips go too. While \"Pictures next to the name of the game\" is on (the default), those pictures and clips are covered anyway, so this adds almost nothing. Needs \"Also hide spoiler pictures and video thumbnails\" on. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
+    },
+    "noEffect": {
+      "hideImagesOff": "Greyed out: it needs \"Also hide spoiler pictures and video thumbnails\" on.",
+      "casual": "Greyed out: it does nothing in Casual, or when How careful is \"Light: only obvious spoilers\".",
+      "mediaNearOn": "It adds almost nothing while \"Pictures next to the name of the game\" is on: those pictures and clips are covered anyway."
+    },
+    "summary": {
+      "title": "Current settings",
+      "hide": "Hide",
+      "show": "Show current settings",
+      "tapToOpen": "tap to see all",
+      "tapToClose": "tap to close",
+      "on": "ON",
+      "off": "OFF",
+      "pausedState": "PAUSED",
+      "onValue": "on",
+      "offValue": "off",
+      "default": "(default)",
+      "changed": "{count} changed",
+      "hiddenTitle": "What is hidden",
+      "thumbsNote": "words are not hidden",
+      "differTitle": "Differs from default",
+      "differNone": "Nothing: every setting is as it came.",
+      "noEffect": {
+        "hideImagesOff": "no effect: needs Spoiler pictures on",
+        "casual": "no effect in Casual or with How careful on Light",
+        "mediaNearOn": "adds little: mostly covered anyway by Pictures next to the name of the game"
+      },
+      "exceptionsTitle": "Exceptions",
+      "exceptions": {
+        "safeSites": "Safe sites",
+        "safePages": "Safe pages",
+        "strictSites": "Strict sites",
+        "ownWords": "Own words",
+        "neverHide": "Never-hide words",
+        "blocked": "Blocked accounts",
+        "allowed": "Allowed accounts",
+        "hintWords": "Hint words",
+        "siteSettings": "Sites with own settings",
+        "sitePictures": "Own picture choices per site"
+      },
+      "pauseTitle": "Pause",
+      "notPaused": "Not paused",
+      "pausedShort": "paused",
+      "timer": {
+        "both": "Hiding only from {start} to {end}",
+        "start": "Hiding from {start}",
+        "end": "Hiding until {end}"
+      },
+      "blackout": "Blackout: {choice}",
+      "differCount": {
+        "none": "All default",
+        "one": "1 differs from default",
+        "many": "{count} differ from default"
+      },
+      "noEffectCount": {
+        "one": "1 adds little or nothing",
+        "many": "{count} add little or nothing"
+      },
+      "labels": {
+        "enabled": "Spoiler blocking",
+        "preset": "Block out method",
+        "strictness": "How careful",
+        "protect": "Protect",
+        "kindModes": "Kinds of names",
+        "rareNames": "Unusual names",
+        "allowTrailers": "Official trailers let through",
+        "allowStores": "Official stores let through",
+        "hideMode": "Hiding looks like",
+        "blur": "Blur",
+        "hideImages": "Spoiler pictures",
+        "hideMediaPosts": "Picture-only posts on game pages",
+        "mediaNearGame": "Pictures next to the game's name",
+        "reactionGifs": "Reaction GIFs",
+        "replyGifs": "Reply GIFs",
+        "replyPhotos": "Reply photos",
+        "thumbsOnly": "Pictures only",
+        "hideReplies": "Replies under a hidden comment",
+        "pauseVideo": "Stop videos",
+        "muteAudio": "Mute sound",
+        "spoilerAccounts": "Spoiler accounts",
+        "updateEvery": "Updates",
+        "categoryModes": "Topics",
+        "showReason": "Say why",
+        "revealMode": "How you show something",
+        "rememberReveals": "Keep shown things shown",
+        "parts": "Parts of a page",
+        "showBadge": "Number on the icon"
+      }
     },
     "mediaNearGame": "Pictures next to the name of the game",
     "reactionGifs": "Reaction GIFs from a GIF library",

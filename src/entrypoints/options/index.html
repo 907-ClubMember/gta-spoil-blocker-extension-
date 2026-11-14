@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Spoiler Blocker for GTA 6 Settings</title>
   <meta name="manifest.open_in_tab" content="true" />
-  <style>body{max-width:720px;margin:0 auto;padding:24px 16px 60px}</style>
+  <style>body{max-width:720px;margin:0 auto;padding:24px 16px 60px}
+    /* Room for the "Current settings" panel on the right (options/summary.ts). */
+    @media (min-width:1100px){body{max-width:1014px;display:grid;grid-template-columns:minmax(0,1fr) 270px;column-gap:24px;align-items:start}#app{grid-column:1;grid-row:1}.sum-panel{grid-column:2;grid-row:1}}
+    /* Below that it is a bar on top, though it comes after the page in reading order. */
+    @media (max-width:1099px){body{display:flex;flex-direction:column}.sum-panel{order:-1}}</style>
 </head>
 <body>
   <div id="app"></div>

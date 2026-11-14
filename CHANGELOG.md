@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.5
+
+### Highlights
+
+- Settings has a new Current settings panel: what is on, what you changed, and whether hiding is paused. It stays in view on every tab.
+- "Hide picture and video posts" is explained more clearly, and is greyed out, with the reason, when it can't do anything.
+- Where Settings names the choice you start with, it now says "(default)" instead of "recommended".
+
+### New
+
+- **Current settings panel.** Settings now shows a summary of what is in effect: on or off and the level, what is hidden, the settings you changed (each one a link that takes you to it), your safe sites, strict sites, own words and other lists as counts, and whether hiding is paused, with a Resume now button. On a wide window it sits beside the settings; on a narrow one it is a bar at the top that opens with a tap. It updates as you change things. A Hide button puts it away, and the page remembers that.
+
+### Changes
+
+- **Hide picture and video posts.** Its help now says what it needs and when it adds little. The box is greyed out, with the reason next to it, when spoiler pictures are off or in Casual, where it can't do anything. When "Pictures next to the name of the game" already covers those posts, its example and the panel say it adds little.
+- **"(default)" labels.** Where Settings names the choice you start with, it now says "(default)" instead of "recommended", and only on that choice.
+
 ## 0.1.4
 
 ### Highlights

@@ -226,6 +226,41 @@ const isOn = (name: string) => T.isOn.replace('{name}', name);
 const isOff = (name: string) => T.isOff.replace('{name}', name);
 const picked = (name: string) => T.picked.replace('{name}', name);
 
+/** Why a setting changes nothing: a key of text.noEffect in extension-text.json. */
+export type NoEffectReason = keyof typeof TEXT.noEffect;
+type NoEffectRule = [NoEffectReason, (s: Settings) => boolean];
+/** Each setting's reasons, most specific first: the first that holds is the one given. Add a setting by adding its rules. */
+const NO_EFFECT: Record<'hideMediaPosts', NoEffectRule[]> = {
+  // Mirrors the scanner's mediaPost(): pictures are read only with hideImages on (so it comes first), the rule judges a post as a
+  // whole, which Light turns off (matcher judgesPosts), and it acts only on a page about the game, where nearGame() in 'page' and
+  // in 'post' mode already blurs every big picture and clip. It then only covers the post's few words with it on some sites.
+  hideMediaPosts: [
+    ['hideImagesOff', (s) => !s.hideImages],
+    ['casual', (s) => s.strictness === 'light'],
+    ['mediaNearOn', (s) => s.mediaNearGame !== 'off'],
+  ],
+};
+/** The reason under the global settings alone, as on a site with no entry of its own (what the example cards draw). */
+function globalNoEffect(setting: keyof typeof NO_EFFECT, s: Settings): NoEffectReason | undefined {
+  return NO_EFFECT[setting].find(([, holds]) => holds(s))?.[0];
+}
+
+/**
+ * Why `setting` does nothing with the settings `s`, or undefined when it does something somewhere. A site or group entry can set
+ * pictures, how careful or pictures next to the name of its own (picturesFor, settingsForUrl), and the Strict list makes a site
+ * Strict: the global box still counts there unless the same reason holds on those sites too.
+ */
+export function noEffectBecause(setting: keyof typeof NO_EFFECT, s: Settings): NoEffectReason | undefined {
+  const why = globalNoEffect(setting, s);
+  if (!why) return undefined;
+  const entries = [...Object.values(s.sites ?? {}), ...Object.values(s.siteGroups ?? {})];
+  const places: Settings[] = [
+    ...entries.filter(Boolean).map((o) => ({ ...s, hideImages: o.hideImages ?? s.hideImages, strictness: o.strictness ?? s.strictness, mediaNearGame: o.mediaNearGame ?? s.mediaNearGame })),
+    ...(s.blockSites?.length ? [{ ...s, strictness: 'strict' as const }] : []),
+  ];
+  return places.every((p) => globalNoEffect(setting, p) === why) ? why : undefined;
+}
+
 /**
  * Covered by the table, but let through by another setting? Mirrors the checks in the content scanner and the matcher.
  * Why a piece stays visible: '' when the table shows it anyway, the setting that lets it through, or undefined when covered.
@@ -236,8 +271,10 @@ function letThrough(bit: Bit, look: Look, where: Card['where'], e: Settings, kin
   // A bare clip: hidden as a picture post on a page about the game, or blurred as a big picture near the game's name.
   if (bit === 'clipOnly') {
     // Both rules judge a post as a whole, which Light turns off.
-    if (e.hideImages && e.strictness !== 'light' && (e.hideMediaPosts || e.mediaNearGame !== 'off')) return undefined;
-    return look === 'shown' ? '' : !e.hideImages ? isOff(TEXT.hideImages.name) : picked(STRICTNESS_TEXT.light.name);
+    const no = globalNoEffect('hideMediaPosts', e);
+    if (no === 'hideImagesOff') return look === 'shown' ? '' : isOff(TEXT.hideImages.name);
+    if (no === 'casual') return look === 'shown' ? '' : picked(STRICTNESS_TEXT.light.name);
+    return e.hideMediaPosts || e.mediaNearGame !== 'off' ? undefined : '';
   }
   if (look === 'shown') return '';
   if (i.pic) {
@@ -384,6 +421,8 @@ export function drawExample(id: OptionId, picked: string, s: Settings, site?: Si
     ...(names.length && e.allowTrailers ? [T.trailerNote.replace('{name}', TEXT.allowTrailers.name)] : []),
     ...(names.some((k) => k && KIND_GROUP[k] === 'people') ? [T.peopleNote] : []),
     ...(own && site ? [T.siteOnly] : []),
+    // A bare clip is covered by the near-game pictures setting too, whichever is picked here.
+    ...((id === 'hideMediaPosts' || id === 'siteHideMediaPosts') && noEffectBecause('hideMediaPosts', e) === 'mediaNearOn' ? [T.alsoCovered.replace('{name}', TEXT.mediaNearGame)] : []),
   ];
   const said = cards.length ? [...cards.map((c) => sayCard(c.where, c.bits)), ...(all ? [T.because.replace('{setting}', all)] : []), ...notes].join(' ') : T.custom;
   return [el('div', { class: 'ex-head' }, el('span', { class: 'ex-title' }, T.title), legend), ...(cards.length ? [drawn] : []), el('figcaption', { class: 'ex-say' }, said)];
