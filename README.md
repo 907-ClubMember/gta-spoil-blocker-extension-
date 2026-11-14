@@ -65,6 +65,16 @@ It reads words, not meaning. A comment that tells the story in plain words, with
 
 About 85% correct labeling in testing; on GTA 6's wiki so far it has missed no spoilers and leans toward hiding more than needed.
 
+## Report a problem
+
+Something missed, something hidden that should not be, or a page that looks broken? Open an [issue](https://github.com/907-ClubMember/gta-spoil-blocker-extension-/issues/new/choose) and pick the form that fits:
+
+- **Missed spoiler**: something that should have been covered was not.
+- **Wrong hide**: something harmless was covered.
+- **Broken page**: the extension breaks or misplaces a page.
+
+**Never type a spoiler or a name from the game.** The forms never ask for one: you choose the site, paste the page link and tick three boxes. A program reads the reports, not a person, and a report that names something on the list, or that comes from a brand-new account, is moved out of sight automatically. Before you send one, look at the **Why** panel in the popup: a page can be left alone because the site is paused, the list is out of date, or a name needs the game mentioned next to it. That is by design, not a bug.
+
 ## Privacy
 
 I am not interested in your data. Pages are read only inside your browser. No account, no tracking, no analytics. The only download is the spoiler list itself. The code is open source on GitHub.
