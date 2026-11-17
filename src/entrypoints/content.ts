@@ -1,6 +1,6 @@
 import { accountKeys, accountWords } from '../accounts';
 import { Matcher, labelFor } from '../matcher';
-import { Scanner, guardBars, shadowRoots, syncReaders } from '../content/scanner';
+import { Scanner, giveBackFilter, giveBackMedia, guardBars, shadowRoots, syncReaders } from '../content/scanner';
 import { activeList, builtinList } from '../list/store';
 import { CATEGORIES, type SpoilerList } from '../types';
 import { shapeTerms } from '../levels';
@@ -104,6 +104,11 @@ export default defineContentScript({
      * across every restart for the people who switched "remember reveals" on, as the running scan was started.
      */
     let keptReveals = new WeakSet<Element>();
+    /**
+     * The posts the user showed, by id: a post shown on a feed opens shown on its own page. Memory of this page only (a new page load starts
+     * with none); kept through address changes inside the page, timers and list updates; dropped on a settings save unless "remember reveals" is on.
+     */
+    let shownThreads = new Set<string>();
     let remembering = false;
     let countPort: chrome.runtime.Port | null = null;
     const connectCount = () => {
@@ -162,7 +167,11 @@ export default defineContentScript({
       }
     };
     const releaseHold = () => {
-      for (const r of [document, ...shadowRoots()]) r.querySelectorAll('[data-gsb-hold]').forEach((e) => e.removeAttribute('data-gsb-hold'));
+      for (const r of [document, ...shadowRoots()]) r.querySelectorAll('[data-gsb-hold]').forEach((e) => {
+        e.removeAttribute('data-gsb-hold');
+        // Not covered again by the new scan: an inline filter taken off it while covered goes back.
+        if (!e.hasAttribute('data-gsb')) giveBackFilter(e);
+      });
       syncReaders(document);
     };
 
@@ -190,7 +199,7 @@ export default defineContentScript({
       scanner?.setRealTitle(realTitle, shownTitle);
     };
 
-    const stop = (keepReveals = false) => {
+    const stop = (keepReveals = false, settingsSaved = false) => {
       observer?.disconnect();
       observer = null;
       clearTimeout(timer);
@@ -213,6 +222,9 @@ export default defineContentScript({
         keptReveals = new WeakSet();
         for (const r of [document, ...shadowRoots()]) r.querySelectorAll('[data-gsb-revealed]').forEach((e) => e.removeAttribute('data-gsb-revealed'));
       }
+      // The posts shown by id go only with a settings save: a restart for a new address inside the page (a feed to its post), a timer or a
+      // list update keeps them, since moving to the post is what they are kept for. A new page load starts with none.
+      if (settingsSaved && !remembering) shownThreads = new Set();
       tellCount();
     };
 
@@ -221,10 +233,10 @@ export default defineContentScript({
     const keptList = keepLast(activeList);
     // The last list that was read without error on this page (see start).
     let goodList: SpoilerList | undefined;
-    const start = async (listUpdate = false) => {
+    const start = async (listUpdate = false, settingsSaved = false) => {
       if (!listUpdate) titleShown = false;
       holdCovers();
-      stop(listUpdate);
+      stop(listUpdate, settingsSaved);
       reported = undefined; // a restart tells the background again, so no stale answer survives
       const mine = ++generation;
       try {
@@ -272,16 +284,18 @@ export default defineContentScript({
       const pics = picturesFor(saved, url, host, { blackout: blackoutOn(saved, list.release, Date.now()) });
       remembering = s.rememberReveals;
       searchSkipped = skipsSearch(saved, url);
-      if (!s.enabled) return void report(false);
+      // Not hiding here (off for this site or page, paused, a skipped search page): the sound and play we took come back.
+      const off = () => { giveBackMedia([document, ...shadowRoots()]); report(false); };
+      if (!s.enabled) return void off();
       const now = Date.now();
       if (isSuspended(s, now)) {
         // Paused, past the end date, or the story is finished: look again when the pause ends.
         const ends = [s.pausedUntil, timerNextChange(s, now) ?? 0].filter((t) => t > now);
         if (ends.length) wake = window.setTimeout(() => void start(), Math.min(Math.min(...ends) - now + 1000, 2 ** 31 - 1));
-        return void report(false);
+        return void off();
       }
       // A search page counts as one part; when it is switched off nothing on it is read.
-      if (searchSkipped) return void report(false);
+      if (searchSkipped) return void off();
 
       const here = location.host + location.pathname;
       const rule = adapterFor(host, location.pathname);
@@ -315,7 +329,7 @@ export default defineContentScript({
         // Discord's GIF video gets its aria-label after it is added: there only, a late label is read too.
         attributeFilter: ['src', 'srcset', 'alt', 'poster', ...(rule?.name === 'Discord' ? ['aria-label'] : []), ...(accounts.size ? ['href'] : [])],
       };
-      const sc = new Scanner(document, matcher, { onShadowRoot: (r) => observer?.observe(r, watchOpts), hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, debugWhy: DEBUG_WHY && s.debugWhy, revealMode: s.revealMode, keepRevealed: keptReveals, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, pictures: pics.values, gifs: site?.gifs, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, chat: site?.chat, threads: site?.threads, replies: site?.replies, thumbs: site?.thumbs, postMaker: site?.postMaker, allowTrailers: s.allowTrailers, allowStores: s.allowStores, primaryPost: site?.primaryPost, picLinks: site?.picLinks, viewers: site?.viewers, mediaPostPictures: site?.mediaPostPictures, coverParts: site?.coverParts, strongOnly: site?.strongOnly, apart: rule?.apart /* kept when the site rule went stale: its parts use stable hooks, not the post cards */, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, threadEnd: site?.threadEnd, names: site?.names, people: site?.people, bio: site?.bio, keepClear: rule?.keepClear, keepClearNot: rule?.keepClearNot, commentsInside: site?.commentsInside, slides: site?.slides, threadCards: site?.threadCards, mainBlock: site?.mainBlock, swallowClicks: site?.swallowClicks, accounts, ownPage: site?.ownPage, coverSource: { strictness: strictnessSource(saved, url, host), ownAccounts: accountKeys({ spoilerAccounts: false, blockedAccounts: s.blockedAccounts }), globalPictures: pics.global } });
+      const sc = new Scanner(document, matcher, { onShadowRoot: (r) => observer?.observe(r, watchOpts), hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, debugWhy: DEBUG_WHY && s.debugWhy, revealMode: s.revealMode, keepRevealed: keptReveals, shownThreads, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, pictures: pics.values, gifs: site?.gifs, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, chat: site?.chat, chatLines: site?.chatLines, threads: site?.threads, replies: site?.replies, thumbs: site?.thumbs, postMaker: site?.postMaker, allowTrailers: s.allowTrailers, allowStores: s.allowStores, primaryPost: site?.primaryPost, picLinks: site?.picLinks, viewers: site?.viewers, mediaPostPictures: site?.mediaPostPictures, coverParts: site?.coverParts, strongOnly: site?.strongOnly, apart: rule?.apart /* kept when the site rule went stale: its parts use stable hooks, not the post cards */, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, threadEnd: site?.threadEnd, names: site?.names, people: site?.people, bio: site?.bio, keepClear: rule?.keepClear, keepClearNot: rule?.keepClearNot, playerLayers: rule?.playerLayers, feeds: rule?.feeds, staleTags: rule?.staleTags, embeds: site?.embeds, searchPath: rule?.searchPath, overCards: rule?.overCards, boxArt: rule?.boxArt, ownReplies: site?.ownReplies, commentsInside: site?.commentsInside, slides: site?.slides, threadCards: site?.threadCards, mainBlock: site?.mainBlock, swallowClicks: site?.swallowClicks, accounts, ownPage: site?.ownPage, coverSource: { strictness: strictnessSource(saved, url, host), ownAccounts: accountKeys({ spoilerAccounts: false, blockedAccounts: s.blockedAccounts }), globalPictures: pics.global } });
       scanner = sc;
       // A title swapped before this start (the tab shows our label): the new scan reads the page's own one.
       if (isTop && shownTitle !== null && document.title === shownTitle) sc.setRealTitle(realTitle, shownTitle);
@@ -324,6 +338,7 @@ export default defineContentScript({
       if (!isTop) sc.setOuterContext(outer);
       report(sc.refreshPageContext());
       if (document.body) sc.scan(document.body);
+      sc.holdPlaying();
       // Read the whole page without error: a later failed start falls back to this list.
       goodList = list;
       sc.quiet();
@@ -475,7 +490,7 @@ export default defineContentScript({
       await start();
 
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local' && (changes.settings || changes.list)) void start(!changes.settings);
+        if (area === 'local' && (changes.settings || changes.list)) void start(!changes.settings, !!changes.settings);
       });
       // A tab frozen (back/forward cache) or in the background can miss a Resume or the wake timer and stay unprotected.
       // Shown again while not hiding, it looks again; a running scan is left as it is.

@@ -484,10 +484,11 @@ export class Matcher {
 
   /**
    * `pageHasContext`: the page, or the post or thread around this text, is about the game. `onPage`: the page itself is, which is
-   * the only thing that lets a name set to "Only when the page mentions GTA 6" count.
+   * the only thing that lets a name set to "Only when the page mentions GTA 6" count. `level`: judge at this level instead of the
+   * person's (a fast chat's messages are judged at Strict).
    */
-  decide(found: Found, pageHasContext = false, onPage = false): MatchResult | null {
-    const [hit, grp] = this.hitsAt(this.strictness, found, pageHasContext, onPage);
+  decide(found: Found, pageHasContext = false, onPage = false, level: Strictness = this.strictness): MatchResult | null {
+    const [hit, grp] = this.hitsAt(level, found, pageHasContext, onPage);
     if (!hit.size) return null;
     const custom = hit.has('custom');
     const categories = [...hit].filter((c): c is Category => c !== 'custom');

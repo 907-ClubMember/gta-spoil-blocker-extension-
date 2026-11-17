@@ -56,15 +56,18 @@
   "presets": {
     "casual": {
       "name": "Casual",
-      "help": "Hides only clear spoilers, with a light blur. Most pictures stay."
+      "help": "Hides only clear spoilers, with a light blur. Most pictures stay.",
+      "pictures": "Pictures: none covered just for being near the game's name, on GTA 6 pages or in mixed feeds; only a picture whose own caption or file name gives something away."
     },
     "careful": {
       "name": "Careful (default)",
-      "help": "Hides names when a post is about GTA 6, with a strong blur you can click through."
+      "help": "Hides names when a post is about GTA 6, with a strong blur you can click through.",
+      "pictures": "Pictures: covered on GTA 6 pages and next to any post that mentions GTA 6 in mixed feeds too."
     },
     "blackout": {
       "name": "Total blackout",
-      "help": "Removes any post with a name you chose to hide, GTA 6 mentioned or not, with no label. Pick Everything under What to hide as well to see as little as possible."
+      "help": "Removes any post with a name you chose to hide, GTA 6 mentioned or not, with no label. Pick Everything under What to hide as well to see as little as possible.",
+      "pictures": "Pictures: as in Careful, but removed instead of blurred, and reply GIFs and photos always go too."
     },
     "custom": {
       "name": "Custom",
@@ -323,7 +326,7 @@
   "replies": {
     "all": {
       "name": "Hide the replies under it too",
-      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all."
+      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X, each reply is always checked on its own."
     },
     "own": {
       "name": "Hide only that comment",
@@ -336,21 +339,21 @@
       "help": "A picture is only hidden when its own caption or file name gives something away."
     },
     "page": {
-      "name": "Only on pages that mention GTA 6",
-      "help": "On a page whose title, heading or address mentions GTA 6, like a GTA 6 subreddit or a search for GTA 6, every large picture and video is blurred, harmless ones too. Words stay readable, and one click shows a picture. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
+      "name": "Only on pages about GTA 6",
+      "help": "A GTA 6 subreddit, a GTA 6 article or video page. Mixed feeds like your Reddit or YouTube home are left alone. Words stay readable, and one click shows a picture. Not when How careful is \"Light: only obvious spoilers\"."
     },
     "post": {
-      "name": "Also next to any post that mentions GTA 6 (default)",
-      "help": "The choice above, and also any large picture on any page when the post or caption next to it mentions GTA 6, and the small preview picture of such a post on Reddit. Words stay readable, and one click shows a picture. Not in Casual, or when How careful is \"Light: only obvious spoilers\"."
+      "name": "Also on mixed pages (default)",
+      "help": "Your Reddit home, YouTube home, X timeline. Any post there that mentions GTA 6 gets its pictures covered, on top of pages about GTA 6. Words stay readable, and one click shows a picture. Not when How careful is \"Light: only obvious spoilers\"."
     }
   },
   "replyGifs": {
     "show": {
-      "name": "Show them (default)",
+      "name": "Show them",
       "help": "A GIF posted as a reply with no words of its own about the game, and with a clean description, is shown, even on a page about the game. Reaction GIFs are almost always harmless. A game clip posted as a GIF reply stays visible too. The post's own pictures, quoted posts, link cards, galleries and video are still covered."
     },
     "cover": {
-      "name": "Cover them like other pictures",
+      "name": "Cover them like other pictures (default)",
       "help": "Reply GIFs without a description are covered like any other picture next to the name of the game. Safer, but harmless reaction GIFs get covered too. A GIF from a GIF library that has a description is judged by 'Reaction GIFs from a GIF library' above, whatever this says."
     }
   },
@@ -366,11 +369,11 @@
   },
   "reactionGifs": {
     "label": {
-      "name": "Judge them by their label (default)",
+      "name": "Judge them by their label",
       "help": "A reaction GIF from a GIF library is hidden only when its label or title gives something away. Otherwise it shows, even next to the name of the game. A spoiler GIF with a harmless-sounding label can slip through; pick the other choice if you want no risk."
     },
     "picture": {
-      "name": "Always cover them like pictures",
+      "name": "Always cover them like pictures (default)",
       "help": "Reaction GIFs are treated like any other picture, so they are covered whenever the pictures above would be. Safer, but harmless GIFs get covered too."
     }
   },
@@ -416,6 +419,7 @@
     "where": {
       "game": "A page about ZZG 9",
       "other": "Any other page",
+      "feed": "Your home feed, mixed posts (like Reddit or YouTube home)",
       "blackoutGame": "A page about ZZG 9, during the blackout",
       "blackoutOther": "Any other page, during the blackout"
     },
@@ -441,6 +445,7 @@
       "searchResult": { "show": "Search result: how the Quux Bank Heist ends", "say": "a search result" },
       "sidebarItem": { "show": "Up next: the Quux Bank Heist finale", "say": "a suggestion in the side column" },
       "newsText": { "show": "Article: ZZG 9 review, and that Quux Bank Heist twist", "say": "the text of a news article" },
+      "feedPost": { "show": "Quill Marrow: My cat learned to open the fridge.", "say": "a post about something else" },
       "channelPost": { "show": "Zorblax Quux: Watch ZorbLeaks for the whole ZZG 9 story.", "say": "a post that names a known spoiler channel" },
       "kindName": { "show": "Can't stop thinking about {name}.", "say": "a post with a name of this kind" },
       "kindNameGame": { "show": "ZZG 9 fans, what do you make of {name}?", "say": "a post that names ZZG 9 and a name of this kind" },
@@ -465,6 +470,13 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_6": [
+      "Chats on Discord, Twitch, Kick and YouTube check each message on its own, and a mention no longer hides the messages after it.",
+      "New popup buttons: turn off on all of a site, or on this page only. Turning off or on works at once, with no refresh.",
+      "YouTube: when autoplay moves on to a covered video, it stays covered and paused until you press its label. Its poster and end screen are covered too.",
+      "Reaction and reply GIFs are now covered like other pictures. You can show them again in Settings, Pictures.",
+      "Search results that link only to the publisher's site or the big game stores are shown, unless the summary has a spoiler word."
     ],
     "v0_1_5": [
       "Settings has a new Current settings panel: what is on, what you changed, and whether hiding is paused. It stays in view on every tab.",
@@ -502,10 +514,14 @@
     "previewPost": "Franklin and Lamar argue about cars in Strawberry.",
     "settingsIntro": "Changes save by themselves and reach open pages straight away. Examples here use an invented game, ZZG 9, so they give nothing away about GTA 6.",
     "resetName": "Reset to defaults",
-    "resetDone": "Settings are back to how they came.",
-    "resetHelp": "Puts every setting back the way it came, including your own words, sites and accounts. The spoiler list is kept.",
-    "resetButton": "Reset all settings",
+    "resetDone": "Settings reset. Your lists are kept.",
+    "resetHelp": "Puts every choice back the way it came (look, pictures, video, topics, timer, a pause). Your lists stay: your own words, words never to hide, accounts, sites and per-site settings. The spoiler list is kept too.",
+    "resetButton": "Reset to defaults",
     "resetConfirm": "Press again to reset",
+    "clearListsHelp": "Empties your lists: your own words, words never to hide, spoiler and safe accounts, safe and strict sites, per-site settings, and puts the hint words back to the built-in ones. Your choices stay.",
+    "clearListsButton": "Clear my lists",
+    "clearListsConfirm": "Press again to clear your lists",
+    "clearListsDone": "Lists cleared. Your choices are kept.",
     "masterOn": "ON: spoilers are being hidden.",
     "masterOff": "OFF: nothing is being hidden.",
     "masterFinished": "Nothing is hidden: you said you finished the story. You can change that in the settings.",
@@ -563,11 +579,13 @@
     },
     "allowStores": {
       "name": "Let official stores and the publisher's site through",
-      "help": "Pages of the publisher's site and the big console stores, search results and cards that link to them, and the publisher's own posts are shown. Achievements, trophies, comments and forums stay covered."
+      "help": "Pages of the publisher's site and the big console stores, cards that link to them, and the publisher's own posts are shown. Search results that link only to them or to the big PC stores are shown, unless the summary contains a spoiler word. Achievements, trophies, comments and forums stay covered."
     },
     "masterToggle": "Spoiler blocking",
     "masterOffHere": "Off on this site: nothing is hidden here.",
     "masterOffPage": "Off on this page: nothing is hidden here.",
+    "chatStrict": "{site}: each message checked strictly; no hiding after a mention.",
+    "chatStrictAll": "Chats ({sites}): each message checked strictly; no hiding after a mention.",
     "popupTitle": "Spoiler Blocker",
     "whatsNew": {
       "title": "What's new in version {version}",
@@ -602,9 +620,9 @@
     "pausedUntil": "Paused until {when}.",
     "cannotCheck": "This page can't be checked: browsers keep their own pages off limits.",
     "openSettings": "Settings",
-    "offOnSite": "Turn off on {site}",
-    "offOnPage": "Turn off on this page",
-    "pageOffDone": "Turned off on this page",
+    "offOnSite": "Turn off on all of {site}",
+    "offOnPage": "Turn off on this page only",
+    "pageOffDone": "Turned off on this page only",
     "pageOffUndo": "Undo",
     "sitePictures": {
       "name": "Pictures on this site",
@@ -678,6 +696,7 @@
       "changed": "{count} changed",
       "hiddenTitle": "What is hidden",
       "thumbsNote": "words are not hidden",
+      "mediaPageNote": "Pictures in mixed feeds (like Reddit home) are not covered.",
       "differTitle": "Differs from default",
       "differNone": "Nothing: every setting is as it came.",
       "noEffect": {
@@ -841,9 +860,9 @@
       "page": "One page"
     },
     "siteChoice": {
-      "site": "Whole site",
+      "site": "All of",
       "prefix": "Everything under",
-      "page": "Just this page"
+      "page": "This page only"
     },
     "siteChoiceIntro": "How much should this cover? Pick one to add it.",
     "siteBadAddress": "That does not look like a web address. Try something like rockstargames.com.",

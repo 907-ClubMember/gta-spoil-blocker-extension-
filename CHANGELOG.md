@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.1.6
+
+### Highlights
+
+- Chats on Discord, Twitch, Kick and YouTube check each message on its own, and a mention no longer hides the messages after it.
+- New popup buttons: turn off on all of a site, or on this page only. Turning off or on works at once, with no refresh.
+- YouTube: when autoplay moves on to a covered video, it stays covered and paused until you press its label. Its poster and end screen are covered too.
+- Reaction and reply GIFs are now covered like other pictures. You can show them again in Settings, Pictures.
+- Search results that link only to the publisher's site or the big game stores are shown, unless the summary has a spoiler word.
+
+### New
+
+- **Chat, message by message.** On Discord, Twitch, Kick and YouTube live chat, each message is checked strictly on its own words, and a mention of the game no longer hides the messages after it. In a chat about the game (a game Discord server or channel, or a stream or video about the game), messages about deaths, betrayals, twists or the ending are hidden even when they name no one. Every hidden chat message has its own label in its row. The popup and the Current settings panel say so on chat sites.
+- **Clear my lists.** A new Settings button that empties your own lists. Reset to defaults now keeps your lists and only puts your choices back. Both ask for a second press and say when they are done.
+
+### Changes
+
+- **Popup buttons.** "Turn off on all of <site>" and "Turn off on this page only", with the page's address shown under them. On web apps that keep their view in the address, each view is remembered on its own.
+- **Turning off or on is instant.** Covers and labels go away, and come back, at once with no refresh. Sound and play we took from a video are given back; a video you muted or paused yourself stays as you left it.
+- **Showing a video brings its sound back.** Pressing the label on a covered video now gives its sound back, on every site (for example Reddit video posts).
+- **GIFs.** Reaction GIFs and GIFs posted as replies are now covered like other pictures by default: on pages about the game and next to posts that mention it. This also applies if you never changed these settings. To show them again, pick "Judge them by their label" and "Show them" in Settings, Pictures.
+- **Search results.** On Google, Bing and DuckDuckGo, results that link only to the publisher's site or the PlayStation, Xbox, Steam or Epic stores are shown unless the summary contains a spoiler word. Reviews, forums, community and curator pages stay covered.
+- **"Pictures next to the name of the game."** It now says where each choice applies (only on pages about the game, or also in mixed feeds like your Reddit or YouTube home), with an example, a line on each preset and a note in Current settings.
+
+### Fixes
+
+#### YouTube
+- When autoplay moves on to a covered game video, it stays covered and paused until you press its label. Pressing YouTube's big play button over a covered video shows and plays it.
+- The poster, the end screen and the progress-bar preview are covered with the video.
+
+#### Discord
+- Link previews are judged like the site they come from. In a server, channel or category about the game, preview pictures and uploads are covered by default; official store and publisher previews stay visible.
+- Long previews and forwarded messages are read to the end.
+
+#### Reddit
+- On old and new Reddit, the home, all and popular feeds are judged post by post.
+- A covered picture can't be opened by clicking it or pressing Enter.
+
+#### Twitch/Kick
+- Search results and category pages are judged card by card, with one bar per card; box art is never covered. Hover previews are covered too.
+
+#### Bluesky
+- A post's own page no longer shows what it should hide, and a post you showed stays shown.
+
+#### X
+- A covered post no longer hides its whole conversation without a label: each reply is judged on its own words. While the main post is covered, replies are read as if the page were about the game (a weak name counts, and so does a strong spoiler phrase), and every cover has its own label.
+
+#### Google
+- Search suggestions that split a name between what you typed and what Google added are covered.
+
+#### Settings
+- The second press of Reset to defaults and Clear my lists now reliably completes, even if the page is redrawn between presses.
+
+#### Other
+- Another extension can no longer lift a cover by setting a blur-removing style on the covered element.
+
 ## 0.1.5
 
 ### Highlights

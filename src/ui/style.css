@@ -27,6 +27,9 @@ select{width:100%}
 .status{font-weight:600}.status.on{color:var(--ok)}.status.off{color:var(--warn)}
 .msg{font-size:13px;margin-top:6px}
 .msg:empty{margin:0}
+.reset-row{margin:6px 0 10px}
+button.armed{outline:2px solid currentColor;outline-offset:2px;font-weight:600}
+.reset-msg{font-weight:600}
 .warn{color:var(--warn);font-size:13px}
 a{color:var(--link)}
 .seg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
@@ -75,6 +78,7 @@ summary:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-of
 .looks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:auto;gap:6px 10px;margin:8px 0}
 @media (max-width:640px){.looks{grid-template-columns:1fr}.look{display:flex;flex-direction:column}}
 .look{display:grid;grid-row:span 3;grid-template-rows:subgrid;gap:6px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);cursor:pointer}
+.look-pics{display:block;margin-top:4px}
 .look:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .look:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
 .look-head{display:flex;gap:6px;align-items:center;font-weight:600}
@@ -109,6 +113,7 @@ input.switch:checked::before{left:18px}
 .field{display:flex;flex-direction:column;gap:3px;font-size:13px;font-weight:600}
 .field select{font-weight:400}
 button.wide{width:100%}
+.page-address{color:var(--muted);font-size:12px;margin:3px 0 8px;text-align:center;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .flat>.card{background:none;border:0;border-top:1px solid var(--line);border-radius:0;padding:20px 0;margin:0}
 .flat>.card:first-child{border-top:0;padding-top:4px}

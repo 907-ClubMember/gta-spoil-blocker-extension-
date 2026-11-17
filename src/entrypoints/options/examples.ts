@@ -29,7 +29,7 @@ export type Model = Card[];
  */
 interface Info { pic?: true; near?: true; judged?: true; kind?: Kind; topic?: Category; weak?: true; named?: true; anyKind?: true; rare?: true; leak?: true; trailer?: true; store?: true; part?: PagePart }
 const BITS: Record<Bit, Info> = {
-  words: {}, spoilerWords: { judged: true, topic: 'story' }, storyName: { kind: 'lead', weak: true }, sideName: { kind: 'side', weak: true },
+  words: {}, feedPost: {}, spoilerWords: { judged: true, topic: 'story' }, storyName: { kind: 'lead', weak: true }, sideName: { kind: 'side', weak: true },
   mission: { kind: 'heist' }, city: { kind: 'setting' }, trailerName: { kind: 'cast', weak: true, trailer: true },
   picture: { pic: true, near: true }, spoilerPicture: { pic: true, kind: 'heist' }, clipOnly: { pic: true },
   libraryGif: { pic: true, near: true }, spoilerGif: { pic: true, near: true, judged: true }, replyGif: { pic: true, near: true }, replyPhoto: { pic: true, near: true },
@@ -50,6 +50,8 @@ const INFO: Record<Bit, Info> = Object.fromEntries(
 
 const game = (...bits: [Bit, Look][]): Card => ({ where: 'game', bits });
 const other = (...bits: [Bit, Look][]): Card => ({ where: 'other', bits });
+/** A mixed home feed: a post about something else, then one about the game with a picture. */
+const feed = (picture: Look): Card => ({ where: 'feed', bits: [['feedPost', 'shown'], ['words', 'shown'], ['picture', picture]] });
 /** A checkbox that covers one thing when on and leaves it alone when off. */
 const toggle = (card: (look: Look) => Card) => ({ on: [card('covered')], off: [card('shown')] });
 const part = (bit: Bit) => toggle((l) => game([bit, l]));
@@ -91,9 +93,9 @@ const PICTURES = {
     off: [game(['spoilerWords', 'covered'], ['spoilerPicture', 'covered'])],
   },
   mediaNear: {
-    off: [game(['words', 'shown'], ['picture', 'shown'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'shown'])],
-    page: [game(['words', 'shown'], ['picture', 'covered'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'shown'])],
-    post: [game(['words', 'shown'], ['picture', 'covered'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'covered'])],
+    off: [game(['words', 'shown'], ['picture', 'shown'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'shown']), feed('shown')],
+    page: [game(['words', 'shown'], ['picture', 'covered'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'shown']), feed('shown')],
+    post: [game(['words', 'shown'], ['picture', 'covered'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'covered']), feed('covered')],
   },
   reactionGifs: {
     label: [game(['words', 'shown'], ['libraryGif', 'shown'], ['spoilerGif', 'covered'])],
@@ -281,7 +283,7 @@ function letThrough(bit: Bit, look: Look, where: Card['where'], e: Settings, kin
     if (!e.hideImages) return isOff(TEXT.hideImages.name);
     if (i.near && e.strictness === 'light') return picked(STRICTNESS_TEXT.light.name);
     if (i.near && e.mediaNearGame === 'off') return picked(MEDIA_NEAR_TEXT.off.name);
-    if (i.near && where === 'other' && e.mediaNearGame !== 'post') return picked(MEDIA_NEAR_TEXT.page.name);
+    if (i.near && (where === 'other' || where === 'feed') && e.mediaNearGame !== 'post') return picked(MEDIA_NEAR_TEXT.page.name);
   } else if (e.thumbsOnly) return isOn(TEXT.thumbsOnly.name); // pictures only: words are never covered
   if (i.part && !e.parts[i.part]) return isOff(PART_TEXT[i.part].name);
   if (i.rare) return rareThrough(i, onGame, e);

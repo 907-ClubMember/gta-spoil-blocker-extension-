@@ -1,4 +1,5 @@
 import { hostMatches } from '../settings';
+import { GOOGLE_HOSTS } from './official';
 
 /**
  * A site adapter says which element is "one post" on that site, so the whole card
@@ -21,8 +22,12 @@ export interface Adapter {
   apart?: string;
   /** Regions hidden as one piece when anything in them matches, even though they hold smaller cards. */
   panels?: string;
-  /** Messages are a flat list with no nesting: a game mention also covers the next few messages. */
+  /** Picture layers the player lays over its video (a poster, end-screen tiles): covered whenever the video is. */
+  playerLayers?: { player: string; layers: string; play?: string };
+  /** Messages are a flat list with no nesting (a chat). */
   chat?: boolean;
+  /** A fast chat's message rows (a part of containers): each is judged on its own words at Strict, and a mention covers no later line. */
+  chatLines?: string;
   /**
    * Comments whose element also holds the replies under them. Only these can be hidden "own content
    * only" (the reply option); every other card is always hidden whole, because a card that merely
@@ -42,7 +47,7 @@ export interface Adapter {
   /**
    * The main post of a thread page, for sites whose replies are not nested but follow it as separate
    * posts. A reply to a main post that names the game counts as being about it, and hiding the main post
-   * hides the replies after it too (the reply option). With `threads` (Reddit, Instagram, Facebook): comments that sit inside the main post
+   * hides the replies after it too (the reply option; not with `ownReplies`, X). With `threads` (Reddit, Instagram, Facebook): comments that sit inside the main post
    * (Instagram, Facebook) are covered with it as well, see Scanner `inMain`.
    */
   main?: string;
@@ -69,14 +74,38 @@ export interface Adapter {
    * path, and on the path with its query only when the pattern names a "?" (Facebook's permalink.php).
    */
   threadKey?: RegExp;
+  /**
+   * The replies of a thread page are never covered with its main post (X: a conversation's replies are separate posts by other people,
+   * often about something else): each is judged on its own words, the main post naming the game still counting as their context.
+   */
+  ownReplies?: boolean;
   /** Blocks that end a thread page's replies, whatever they hold (Reddit's "more posts" feed): see Scanner `threadEnd`. */
   threadEnd?: string;
   /** People's names and handles (display names, author lines): never matched against the list. `people`: person cards (their text is not read), except their `bio`, which only a high-risk signal covers. */
   names?: string;
-  /** What is never covered as a picture or video: a live stream's player (the owner's rule: its title or card is covered, the player is not). */
+  /** What is never covered as a picture or video: a live stream's player (the owner's rule: its title or card is covered, the player is not), or the site's own artwork (Reddit's sign-up panel). */
   keepClear?: string;
+  /**
+   * Paths of a feed that mixes everything (a home page, r/all): never about the game as a whole, whatever its title, heading or tags
+   * say. Each post there is judged by its own words.
+   */
+  feeds?: RegExp;
+  /**
+   * The site moves between its pages without a reload and leaves the first page's description tags in place (Reddit): they count only
+   * while the path or the title is still the one they changed with. Not set: a site's tags count on every page (a fan site's tags name the game on all of them).
+   */
+  staleTags?: boolean;
   /** Addresses where keepClear does not apply (recorded broadcasts, clips). */
   keepClearNot?: RegExp;
+  /**
+   * The site's own search page (its path): a list of results, each judged on its own words. What was searched for (the address's query, and
+   * its echo in the title, heading or description) does not make the page about the game. A search engine's results page is not one.
+   */
+  searchPath?: RegExp;
+  /** Pictures and videos laid over a card from a layer of their own elsewhere in the page (a hover preview): judged and covered with the card under them. */
+  overCards?: boolean;
+  /** A category's or game's box art (official cover art, the owner's rule): never covered as a picture. Known by structure: its link or its file's address. */
+  boxArt?: string;
   people?: string;
   bio?: string;
   /** The comments of a thread page sit inside the main post (Instagram, Facebook): these blocks are covered with it, nothing after it. See Scanner `inMain`. */
@@ -99,6 +128,8 @@ export interface Adapter {
    * video inside is paused.
    */
   ownPage?: { owner: string; parts?: string; page: string };
+  /** Discord: link previews (embeds) and attachments, judged with the server and channel the message is in. See src/content/discord-embeds.ts. */
+  embeds?: boolean;
 }
 
 // Instagram, read from a live opened post (replies loaded): every comment and reply links to its own
@@ -142,9 +173,6 @@ const FB_MAIN = `[role="dialog"] ${FB_TOP}, body:not(:has([role="dialog"] ${FB_T
 // search, a photo or a video. The key is the whole match, or the story id for permalink.php; the query counts only here (the pattern names a "?").
 const FB_THREAD = /^\/(?:groups\/[^/]+\/(?:posts|permalink)\/[^/?#]+|(?!groups\/|permalink\.php)[^/]+\/posts\/[^/?#]+|permalink\.php\?(?:[^#]*&)?story_fbid=([^&#]+))/;
 
-// Google search in every country, from Google's own list (google.com/supported_domains): google.co.uk and the
-// rest got no rule before. All shorter than mail.google.com, so Gmail keeps its own rule.
-const GOOGLE_HOSTS = 'com ad ae com.af com.ag al am co.ao com.ar as at com.au az ba com.bd be bf bg com.bh bi bj com.bn com.bo com.br bs bt co.bw by com.bz ca cd cf cg ch ci co.ck cl cm cn com.co co.cr com.cu cv com.cy cz de dj dk dm com.do dz com.ec ee com.eg es com.et fi com.fj fm fr ga ge gg com.gh com.gi gl gm gr com.gt gy com.hk hn hr ht hu co.id ie co.il im co.in iq is it je com.jm jo co.jp co.ke com.kh ki kg co.kr com.kw kz la com.lb li lk co.ls lt lu lv com.ly co.ma md me mg mk ml com.mm mn com.mt mu mv mw com.mx com.my co.mz com.na com.ng com.ni ne nl no com.np nr nu co.nz com.om com.pa com.pe com.pg com.ph com.pk pl pn com.pr ps pt com.py com.qa ro ru rw com.sa com.sb sc se com.sg sh si sk com.sl sn so sm sr st com.sv td tg co.th com.tj tl tm tn to com.tr tt com.tw co.tz com.ua co.ug co.uk com.uy co.uz com.vc co.ve co.vi com.vn vu ws rs co.za co.zm co.zw cat'.split(' ').map((t) => `google.${t}`);
 
 export const ADAPTERS: Adapter[] = [
   {
@@ -161,6 +189,9 @@ export const ADAPTERS: Adapter[] = [
     // Only the watch page's recommendations and its shorts shelf: not #secondary as a whole (the chapters and description panels
     // there are this video), and not a shorts shelf on a search or channel page (there the shorts are what the page is about).
     apart: '#related, ytd-watch-next-secondary-results-renderer, ytd-watch-flexy ytd-reel-shelf-renderer',
+    // With autoplay off the player shows a poster over the video (not the video), and at the end other videos' tiles and cards.
+    // The progress bar's frame preview and the up-next tile are named from memory, not read from a saved page (unverified).
+    playerLayers: { player: '.html5-video-player', layers: '.ytp-cued-thumbnail-overlay-image, .ytp-endscreen-content, .ytp-videowall-still, .ytp-ce-element, .ytp-tooltip-bg, .ytp-autonav-endscreen-upnext-thumbnail', play: '.ytp-large-play-button' },
     // Read from a saved watch page: the video's channel shows in the owner row under the title, in the description's
     // channel card, and in the header of the description panel beside the video. A Shorts player page holds each
     // short's channel row inside that short's own block (its player too). Only channel rows count: a comment's
@@ -173,13 +204,14 @@ export const ADAPTERS: Adapter[] = [
   },
   {
     // A stream's live chat runs in its own frame (youtube.com/live_chat, and live_chat_replay for a past stream's chat). Each
-    // message is one chat line, judged like Kick and Twitch: a game mention also covers the next few messages. Element names from
+    // message is one chat line, judged like Kick and Twitch: on its own words at Strict. Element names from
     // YouTube's public page structure.
     name: 'YouTube live chat',
     hosts: ['youtube.com'],
     path: /^\/live_chat(_replay)?\b/,
     containers: 'yt-live-chat-text-message-renderer, yt-live-chat-paid-message-renderer, yt-live-chat-paid-sticker-renderer, yt-live-chat-membership-item-renderer',
     chat: true,
+    chatLines: 'yt-live-chat-text-message-renderer, yt-live-chat-paid-message-renderer, yt-live-chat-paid-sticker-renderer, yt-live-chat-membership-item-renderer',
   },
   {
     name: 'Reddit',
@@ -201,6 +233,12 @@ export const ADAPTERS: Adapter[] = [
     replyAreas: 'faceplate-partial[slot="children"], a[slot="more-comments-permalink"], .thing.morechildren',
     // A picture-only post on a page about the game: the picture is covered, not the post (its author row, title, votes and comments stay).
     mediaPostPictures: true,
+    // The logged-out sign-up panel beside the feed and threads (read from a saved page): Reddit's own artwork behind "Join ...", never a spoiler.
+    keepClear: 'faceplate-tracker[noun="static_left_rail_banner"]',
+    // The home feed (both layouts, each sort) and r/all, r/popular: a mix of every community.
+    // Moving from a thread to the feed in place leaves the thread's tags in the head.
+    staleTags: true,
+    feeds: /^\/(?:(?:best|hot|new|top|rising|controversial)\/?)?$|^\/r\/(?:all|popular)(?:\/(?:best|hot|new|top|rising|controversial)?\/?)?$/i,
   },
   {
     name: 'X',
@@ -212,6 +250,8 @@ export const ADAPTERS: Adapter[] = [
     // On a tweet's own page the main tweet is the one the page focuses (tabindex -1); replies follow it.
     main: 'article[data-testid="tweet"][tabindex="-1"]',
     threadKey: /\/status\/(\d+)/,
+    // A covered main post does not cover the conversation (0.1.5 report: every reply covered, none with a label): each reply is judged on its own words.
+    ownReplies: true,
     gifs: 'video[src*="/tweet_video/"]',
     // Search's media tab is a grid of post pictures outside any post (read from the live site): in a narrow window each tile is
     // 119 px, under the size floor for pictures. Each tile is a picture of a post, so it counts whatever its size.
@@ -240,7 +280,13 @@ export const ADAPTERS: Adapter[] = [
     postMaker: '[data-testid="likeBtn"]',
     // In an opened thread the replies are links (role="link"); the main post is not.
     main: '[data-testid^="postThreadItem-by-"]:not([role="link"])',
-    threadKey: /\/post\/([^/]+)/,
+    // The author (handle or DID, a leading @ left out) and the post's record key: a record key is unique per author only, so the key is both.
+    // A handle on one side and the DID on the other only fails toward covering. (Instagram shortcodes, X status ids, Reddit post ids and
+    // Steam topic ids are unique across the site: their keys are the id alone.)
+    threadKey: /\/profile\/@?([^/?#]+\/post\/[^/?#]+)/,
+    // A post's pictures sit in its own picture buttons, which open the photo viewer: a covered picture takes the click itself, only its bar
+    // shows it (q22).
+    swallowClicks: true,
   },
   {
     name: 'Threads',
@@ -313,22 +359,33 @@ export const ADAPTERS: Adapter[] = [
   {
     name: 'Kick',
     hosts: ['kick.com'],
+    // A category tile's box art (a picture in a /category/ link): official cover art, never covered. The address shape is the one the
+    // live structure reads open (kick.com/category/<slug>, scripts/read-structure.js); the tile's own markup has no saved page yet.
+    boxArt: 'a[href^="/category/"] img, a[href^="https://kick.com/category/"] img',
     // A stream card, and each line of chat.
     containers: '[data-testid="livestream-results-card"], #chatroom-messages [data-index], article',
     // The live player (read live: #injected-channel-player holds the <video id="video-player">): never covered, muted or paused. Recorded media is not live.
     keepClear: '#injected-channel-player, #video-player',
     keepClearNot: /\/(?:video|videos|clips?)\/|[?&]clip=/,
     chat: true,
+    chatLines: '#chatroom-messages [data-index]',
   },
   {
     name: 'Twitch',
     hosts: ['twitch.tv'],
+    // twitch.tv/search?term=...: a search for the game is not a page about it; each card is judged on its own title, category and tags.
+    searchPath: /^\/search\/?$/,
+    // The hover preview of a card can be mounted outside the card, laid over it: it goes with that card.
+    overCards: true,
+    // Box art (read from the saved directory page: ttv-boxart pictures, category links): official cover art, never covered.
+    boxArt: 'img[src*="/ttv-boxart/"], a[href*="/directory/category/"] img, a[href*="/directory/game/"] img',
     // A stream card, the title of the stream being watched, and each chat line.
     containers: 'article, [data-a-target="stream-title"], .chat-line__message, [data-a-target="chat-line-message"]',
     keepClear: '[data-a-target="video-player"]',
     // Recorded media: a broadcast, a clip, and an embedded player of one (player.twitch.tv/?video=, ?clip=, ?collection=).
     keepClearNot: /^clips\.twitch\.tv|\/videos\/|\/clip\/|[?&](?:video|clip|collection)=/,
     chat: true,
+    chatLines: '.chat-line__message, [data-a-target="chat-line-message"]',
   },
   {
     name: 'Facebook',
@@ -359,8 +416,11 @@ export const ADAPTERS: Adapter[] = [
     // preview and link previews. Class names end in a suffix that changes per release, hence the stems.
     containers: 'li[id^="chat-messages-"], [class*="messageListItem"], [data-list-item-id^="channels___"], [class*="searchResult"]',
     chat: true,
+    chatLines: 'li[id^="chat-messages-"], [class*="messageListItem"]',
     // A channel-list entry is covered only for a strong listed name by itself (answer f02).
     strongOnly: '[data-list-item-id^="channels___"]',
+    // Link previews and attachments: covered out of caution in a game server or channel, read to their end, judged as on their own site.
+    embeds: true,
   },
   {
     name: 'Gmail',

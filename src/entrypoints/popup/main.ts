@@ -2,13 +2,14 @@ import '../../ui/style.css';
 import { el, restoreFocus, rememberFocus, twoPress } from '../../ui/dom';
 import { DONATE_URL, MAKER_URL, RELEASES_URL } from '../../donate';
 import { HIDDEN_GROUP_TEXT, PROTECT_TEXT, TEXT } from '../../text';
-import { DEFAULT_SETTINGS, addPattern, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, pagePattern, patternChoices, patternLabel, removePattern, samePattern, saveSettings, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, addPattern, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, pagePattern, patternChoices, patternLabel, removePattern, samePattern, saveSettings, shortLabel, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
 import { cleanTally, describeTally, type HiddenTally } from '../../hidden';
 import { builtinList, chooseList, loadMeta, savedList } from '../../list/store';
 import { staleNotice } from '../../list/stale';
 import { RELEASE_NOTES } from '../../text';
 import { installKindOf, isNewerVersion, noteToShow, showUpdateSteps } from '../../versions';
 import { BETA } from '../../beta-flag';
+import { chatNote } from '../../chat-note';
 import { BETA_MENU_TITLE, POPUP_PICK_MSG } from '../../beta/strings';
 
 const app = document.getElementById('app')!;
@@ -68,6 +69,9 @@ async function render() {
   const statusLine = el('p', { class: `status ${on ? 'on' : 'off'}`, role: 'status' }, status.on && offHere ? (safeEntries.length && safeEntries.every((p) => p.kind === 'page') ? TEXT.masterOffPage : TEXT.masterOffHere) : status.text);
 
   const body: Node[] = [head, statusLine];
+  // A fast chat (Discord, Twitch, Kick, YouTube live chat): how its messages are judged, in one line.
+  const chat = on ? chatNote(tabUrl) : '';
+  if (chat) body.push(el('p', { class: 'help', id: 'chat-note' }, chat));
   // A list that has not updated for a day, or only the built-in one: say so, so a quiet failure is not mistaken for full cover.
   const saved = await savedList();
   const stale = staleNotice(await loadMeta(), chooseList(saved, builtinList()).savedInUse, now);
@@ -208,7 +212,8 @@ async function render() {
         pageOff = { url: tabUrl, added: added ?? (pageOff?.url === tabUrl ? pageOff.added : undefined) };
         await update({ allowSites: list });
       });
-      body.push(offPage);
+      // The address it applies to, in small grey under it, so the two buttons are told apart at a glance.
+      body.push(offPage, el('p', { class: 'page-address', title: patternLabel(thisPage) }, shortLabel(thisPage)));
     }
     const narrower = choices.slice(1, -1);
     if (narrower.length) {

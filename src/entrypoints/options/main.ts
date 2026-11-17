@@ -1,10 +1,10 @@
 import { SPOILER_ACCOUNTS, parseAccount } from '../../accounts';
 import '../../ui/style.css';
-import { choiceRow, el, preview, rememberFocus, restoreFocus, twoPress } from '../../ui/dom';
+import { choiceRow, el, preview, rememberFocus, restoreFocus } from '../../ui/dom';
 import { DONATE_URL, MAKER_URL, WIKI_URL } from '../../donate';
 import { installKindOf, showUpdateSteps } from '../../versions';
 import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, REACTION_GIF_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT, BLACKOUT_TEXT } from '../../text';
-import { DEFAULT_SETTINGS, PAGE_PARTS, WORDS_ONLY_TOPICS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, samePattern, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, PAGE_PARTS, clearLists, resetChoices, WORDS_ONLY_TOPICS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, samePattern, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
 import { activeList, describeResult, loadMeta } from '../../list/store';
 import { CATEGORIES, KINDS, KIND_GROUP, KIND_GROUPS } from '../../types';
 import { countByCategory } from '../../list';
@@ -14,6 +14,7 @@ import { shapeTerms } from '../../levels';
 import { NEVER_HIDE_REFUSED } from '../../never-hide';
 import { SITE_OFF, attachExamples, noEffectBecause } from './examples';
 import { isSettingAnchor } from '../../reason-settings';
+import { armedButton } from './two-press';
 import { KEY_FOLD, PAGE_ANCHOR_TAB, drawSummary, scheduleRedraw, type DiffKey, type PageAnchor } from './summary';
 
 const app = document.getElementById('app')!;
@@ -72,7 +73,8 @@ function fold(title: string, startOpen: boolean, ...body: Node[]) {
 /** Half-typed text in the add boxes, kept per list across a redraw. */
 const drafts = new Map<string, string>();
 let updateMsg = '';
-let resetDone = false;
+/** The line under Reset or Clear my lists after it ran, kept across redraws. */
+let resetDone: '' | 'reset' | 'cleared' = '';
 
 // Changes made elsewhere while this page is open (the popup's pause, the right-click "hide this") show here at once, so a later
 // change here starts from them. A save of this page's own arrives equal to what it already has, and needs no drawing.
@@ -95,6 +97,7 @@ try {
 const LOOK_FIELDS = Object.keys(PRESETS.careful);
 async function commit(patch: Partial<Settings>) {
   const touchesLook = Object.keys(patch).some((k) => LOOK_FIELDS.includes(k));
+  resetDone = '';
   const now = await loadSettings();
   s = normalizeSettings({ ...now, ...patch, preset: patch.preset ?? (touchesLook ? 'custom' : now.preset) });
   await saveSettings(s);
@@ -103,6 +106,7 @@ async function commit(patch: Partial<Settings>) {
 
 /** A change to what is protected. The look preset (Casual, Careful...) is left as it was. */
 async function commitProtect(patch: Partial<Settings>) {
+  resetDone = '';
   s = normalizeSettings({ ...(await loadSettings()), ...patch });
   await saveSettings(s);
   showSummary();
@@ -349,19 +353,21 @@ async function render() {
   const shaped = shapeTerms(list.terms, s);
   const counts = countByCategory(list.terms);
 
-  // Two presses, not a browser pop-up: one stray click must not lose someone's settings.
   // The on/off card: a jump target of the panel too.
   const masterCard = (...kids: Node[]) => {
     const c = el('section', { class: 'card' }, ...kids);
     c.dataset.setting = 'master';
     return c;
   };
-  const resetBtn = el('button', {}, TEXT.resetButton);
-  twoPress(resetBtn, TEXT.resetButton, TEXT.resetConfirm, async () => {
-    resetDone = true;
-    await commit(structuredClone(DEFAULT_SETTINGS));
+  // Two presses each (see two-press.ts). Saved straight, not through commit(): the whole object is meant, preset included.
+  const wipe = (how: (now: Settings) => Settings, done: 'reset' | 'cleared') => async () => {
+    s = how(await loadSettings());
+    await saveSettings(s);
+    resetDone = done;
     await render();
-  });
+  };
+  const resetBtn = armedButton('reset', TEXT.resetButton, TEXT.resetConfirm, wipe(resetChoices, 'reset'));
+  const clearBtn = armedButton('clear-lists', TEXT.clearListsButton, TEXT.clearListsConfirm, wipe(clearLists, 'cleared'));
 
   const master = el('input', { type: 'checkbox', checked: s.enabled, class: 'switch', ariaLabel: TEXT.masterToggle });
   master.setAttribute('role', 'switch');
@@ -454,8 +460,9 @@ async function render() {
     return choiceRow(input, name, help);
   };
 
-  const lookCard = (input: HTMLInputElement, name: string, help: string, look: Parameters<typeof preview>[0]) =>
-    el('label', { class: 'look' }, el('span', { class: 'look-head' }, input, name), preview(look), el('span', { class: 'help' }, help));
+  // A preset card also says what it does to pictures, in one line (inside the help: the card grid has three rows).
+  const lookCard = (input: HTMLInputElement, name: string, help: string, look: Parameters<typeof preview>[0], pictures?: string) =>
+    el('label', { class: 'look' }, el('span', { class: 'look-head' }, input, name), preview(look), el('span', { class: 'help' }, help, ...(pictures ? [el('span', { class: 'look-pics' }, pictures)] : [])));
   const PRESET_LOOK = { casual: 'light', careful: 'medium', blackout: 'gone' } as const;
   const presetCards = (Object.keys(PRESET_LOOK) as (keyof typeof PRESET_LOOK)[]).map((k) => {
     const input = el('input', { type: 'radio', name: 'preset', value: k, checked: s.preset === k });
@@ -463,9 +470,10 @@ async function render() {
     input.addEventListener('change', async () => {
       s = applyPreset(await loadSettings(), k);
       await saveSettings(s);
+      resetDone = '';
       await render();
     });
-    return lookCard(input, PRESET_TEXT[k].name, PRESET_TEXT[k].help, PRESET_LOOK[k]);
+    return lookCard(input, PRESET_TEXT[k].name, PRESET_TEXT[k].help, PRESET_LOOK[k], PRESET_TEXT[k].pictures);
   });
   const looks = (label: string, cards: HTMLElement[]) => {
     const box = el('div', { class: 'looks', ariaLabel: label }, ...cards);
@@ -677,7 +685,8 @@ async function render() {
       section(TEXT.looksTitle, TEXT.looksHelp, looks(TEXT.looksTitle, presetCards), ...(s.preset === 'custom' ? [el('p', { class: 'help' }, `${PRESET_TEXT.custom.name}: ${PRESET_TEXT.custom.help}`)] : []),
         fold(TEXT.looksOwn, false, looks(TEXT.looksOwn, hideCards))),
       section(BLACKOUT_TEXT.name, BLACKOUT_TEXT.help, blackout, ...(s.blackoutDays ? [el('div', { class: 'times' }, timeBox(BLACKOUT_TEXT.start, s.blackoutFrom, (v) => ({ blackoutFrom: v })), el('label', {}, BLACKOUT_TEXT.zone, zonePick)), el('p', { class: 'help' }, BLACKOUT_TEXT.startHelp)] : [])),
-      section(TEXT.resetName, TEXT.resetHelp, resetBtn, el('p', { class: 'msg help', role: 'status' }, resetDone ? TEXT.resetDone : '')),
+      section(TEXT.resetName, TEXT.resetHelp, el('div', { class: 'reset-row' }, resetBtn), el('p', { class: 'help' }, TEXT.clearListsHelp), el('div', { class: 'reset-row' }, clearBtn),
+        el('p', { class: 'msg reset-msg', role: 'status' }, resetDone === 'reset' ? TEXT.resetDone : resetDone === 'cleared' ? TEXT.clearListsDone : '')),
     ),
     panel('Pictures and comments', true,
       section(TEXT.picturesTitle, TEXT.picturesHelp, choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), mediaRow, check(s.thumbsOnly, TEXT.thumbsOnly.name, TEXT.thumbsOnly.help, (v) => ({ thumbsOnly: v })), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', TEXT.mediaNearGame, s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v })), el('p', {}, el('b', {}, TEXT.reactionGifs)), ...radioGroup('reactionGifs', TEXT.reactionGifs, s.reactionGifs, REACTION_GIF_TEXT, (v) => commit({ reactionGifs: v })), el('p', {}, el('b', {}, TEXT.replyGifs)), ...radioGroup('replyGifs', TEXT.replyGifs, s.replyGifs, REPLY_GIF_TEXT, (v) => commit({ replyGifs: v })), el('p', {}, el('b', {}, TEXT.replyPhotos)), ...radioGroup('replyPhotos', TEXT.replyPhotos, s.replyPhotos, REPLY_PHOTO_TEXT, (v) => commit({ replyPhotos: v }))),

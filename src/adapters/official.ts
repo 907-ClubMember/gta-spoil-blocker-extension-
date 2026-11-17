@@ -85,7 +85,7 @@ export function isOfficialChannelLink(host: string, href: string): boolean {
 /**
  * The big official stores and the publisher's own site (Settings.allowStores): their game and store pages are shown, and so are the search
  * results and social cards that link to them. Exact host or a subdomain only ("rockstargames.com.evil.tld" and "rockstargames-leaks.com"
- * are neither). Steam is not here: its store pages carry user reviews. A fixed list: nothing user-submitted, nothing fetched.
+ * are neither). Steam is not here: its store pages carry user reviews (its search results are: SEARCH_STORE_HOSTS). A fixed list: nothing user-submitted, nothing fetched.
  */
 export const OFFICIAL_STORE_HOSTS: readonly string[] = ['rockstargames.com', 'store.playstation.com', 'playstation.com', 'xbox.com'];
 
@@ -106,7 +106,7 @@ export function isOfficialStoreHost(host: string): boolean {
 /** Hosts whose first label says people write there: Social Club, forums, the support community. */
 const USER_LABEL = /^(?:socialclub|forums?|community|communities|support|help|answers|discussions?|boards?|ugc|media|clips|captures|screenshots)$/i;
 /** Paths that list achievements or trophies, or hold what people write or share: stats, feeds, crews, comments, profiles, reviews, captures, forums. */
-const USER_PATH = /achievement|trophi|\/stats(?:\/|$)|\/feed(?:\/|$)|\/crews?(?:\/|$)|comment|\/community|\/forums?(?:\/|$)|\/profiles?(?:\/|$)|\/members?(?:\/|$)|\/reviews?(?:\/|$)|\/players?(?:\/|$)|\/play\/(?:media|user)|\/(?:media|captures?|clips?|screenshots?|ugc|questions?|user|ratings?)(?:\/|$)/i;
+const USER_PATH = /achievement|trophi|\/stats(?:\/|$)|\/feed(?:\/|$)|\/crews?(?:\/|$)|comment|\/community|\/forums?(?:\/|$)|\/curators?(?:\/|$)|\/profiles?(?:\/|$)|\/members?(?:\/|$)|\/reviews?(?:\/|$)|\/players?(?:\/|$)|\/play\/(?:media|user)|\/(?:media|captures?|clips?|screenshots?|ugc|questions?|user|ratings?)(?:\/|$)/i;
 
 /** A game or store page of an official host: not an achievements or trophies page, not a place where people write. */
 export function isStorePage(host: string, pathname: string): boolean {
@@ -117,19 +117,42 @@ export function isStorePage(host: string, pathname: string): boolean {
   return !USER_PATH.test(path);
 }
 
-/** The target of a search engine's own redirect link (Google's "/url?q=", DuckDuckGo's "uddg"), or the address itself. Only on those hosts. */
+// Google search in every country, from Google's own list (google.com/supported_domains): google.co.uk and the
+// rest got no rule before. All shorter than mail.google.com, so Gmail keeps its own rule.
+export const GOOGLE_HOSTS = 'com ad ae com.af com.ag al am co.ao com.ar as at com.au az ba com.bd be bf bg com.bh bi bj com.bn com.bo com.br bs bt co.bw by com.bz ca cd cf cg ch ci co.ck cl cm cn com.co co.cr com.cu cv com.cy cz de dj dk dm com.do dz com.ec ee com.eg es com.et fi com.fj fm fr ga ge gg com.gh com.gi gl gm gr com.gt gy com.hk hn hr ht hu co.id ie co.il im co.in iq is it je com.jm jo co.jp co.ke com.kh ki kg co.kr com.kw kz la com.lb li lk co.ls lt lu lv com.ly co.ma md me mg mk ml com.mm mn com.mt mu mv mw com.mx com.my co.mz com.na com.ng com.ni ne nl no com.np nr nu co.nz com.om com.pa com.pe com.pg com.ph com.pk pl pn com.pr ps pt com.py com.qa ro ru rw com.sa com.sb sc se com.sg sh si sk com.sl sn so sm sr st com.sv td tg co.th com.tj tl tm tn to com.tr tt com.tw co.tz com.ua co.ug co.uk com.uy co.uz com.vc co.ve co.vi com.vn vu ws rs co.za co.zm co.zw cat'.split(' ').map((t) => `google.${t}`);
+
+/** Google, Bing or DuckDuckGo, by the exact host (bare or www. Google in each country, bing.com, duckduckgo.com and its HTML version). */
+export function searchEngine(host: string): 'google' | 'bing' | 'duckduckgo' | null {
+  const h = host.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
+  if (GOOGLE_HOSTS.includes(h)) return 'google';
+  if (h === 'bing.com') return 'bing';
+  if (h === 'duckduckgo.com' || h === 'html.duckduckgo.com') return 'duckduckgo';
+  return null;
+}
+
+/** A results page of a search engine: Google's and Bing's /search, DuckDuckGo's / or /html, each with a query. */
+export function isResultsPage(host: string, pathname: string, search: string): boolean {
+  const e = searchEngine(host);
+  if (!e || !new URLSearchParams(search).get('q')) return false;
+  return e === 'duckduckgo' ? /^\/(?:html\/?)?$/.test(pathname) : pathname === '/search';
+}
+
+/** An engine's own tool for a result, not another page: a translation (Google's translate.goog proxy too) or a cached copy. */
+export function isEngineTool(u: URL): boolean {
+  const h = u.hostname.toLowerCase().replace(/\.$/, '');
+  return GOOGLE_HOSTS.some((g) => h === `translate.${g}`) || h.endsWith('.translate.goog') || h === 'webcache.googleusercontent.com' || h === 'cc.bingj.com';
+}
+
 /** Bing's result redirect ("/ck/a?...&u=a1<base64url of the address>"): the address, or null when it is not that form. */
 function bingTarget(v: string | null): string | null {
   if (!v || !v.startsWith('a1')) return null;
   try { return atob(v.slice(2).replace(/-/g, '+').replace(/_/g, '/')); } catch { return null; }
 }
 
+/** The target of a search engine's own redirect link (Google's "/url?q=", Bing's "/ck/a", DuckDuckGo's "uddg"), or the address itself. Exact engine hosts only. */
 export function unwrap(u: URL): URL {
-  const h = u.hostname.toLowerCase();
-  const ddg = h === 'duckduckgo.com' || h.endsWith('.duckduckgo.com');
-  const google = /(?:^|\.)google\.[a-z.]+$/.test(h);
-  const bing = h === 'bing.com' || h.endsWith('.bing.com');
-  const t = ddg ? u.searchParams.get('uddg') : google && u.pathname === '/url' ? u.searchParams.get('q') : bing && u.pathname === '/ck/a' ? bingTarget(u.searchParams.get('u')) : null;
+  const e = searchEngine(u.hostname);
+  const t = e === 'duckduckgo' ? u.searchParams.get('uddg') : e === 'google' && u.pathname === '/url' ? u.searchParams.get('q') : e === 'bing' && u.pathname === '/ck/a' ? bingTarget(u.searchParams.get('u')) : null;
   if (t) {
     try { return new URL(t); } catch { /* not an address */ }
   }
@@ -141,6 +164,27 @@ export function isStoreLink(href: string, base = 'https://h.invalid/'): boolean 
   let u: URL;
   try { u = unwrap(new URL(href, base)); } catch { return false; }
   return (u.protocol === 'https:' || u.protocol === 'http:') && isStorePage(u.hostname, u.pathname);
+}
+
+/**
+ * The big PC stores, for search results only: a result's title and snippet are the store's own text. Exact hosts, no subdomains. Not their
+ * pages or link cards: user reviews sit on the store page itself.
+ */
+export const SEARCH_STORE_HOSTS: readonly string[] = ['store.steampowered.com', 'store.epicgames.com'];
+/** A game's page on those stores: Steam /app/<id>[/<name>], Epic [/<locale>]/p/<slug>. */
+const PC_GAME_PAGE = /^\/(?:app\/\d+(?:\/[^/]*)?\/?|(?:[a-z]{2}(?:-[a-z]{2,4})?\/)?p\/[^/]+\/?)$/i;
+
+/** Whether a search result's address goes to a store page of an official host, or to a game page of a big PC store. Only http and https. */
+export function isSearchStoreLink(href: string, base = 'https://h.invalid/'): boolean {
+  let u: URL;
+  try { u = unwrap(new URL(href, base)); } catch { return false; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+  if (isStorePage(u.hostname, u.pathname)) return true;
+  if (!SEARCH_STORE_HOSTS.includes(u.hostname.toLowerCase().replace(/\.$/, ''))) return false;
+  let path = u.pathname;
+  try { path = decodeURIComponent(path); } catch { /* keep the raw path */ }
+  // A game page only (Steam /app/<id>, Epic /p/<slug>): not a curator's list, a search, news or a developer page.
+  return PC_GAME_PAGE.test(path) && !USER_PATH.test(path);
 }
 
 /** Whether `handle` is the publisher's own account on `host` (or a site under it). */

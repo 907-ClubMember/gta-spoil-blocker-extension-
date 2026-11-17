@@ -1,4 +1,4 @@
-import { blockingStatus, timerNextChange, loadSettings, normalizeSettings, saveSettings } from '../settings';
+import { blockingStatus, timerNextChange, loadSettings, migrateSettings, normalizeSettings, saveSettings } from '../settings';
 import { activeList, builtinList, describeResult, updateList } from '../list/store';
 import { ALARM, scheduleAlarm, startUpdates } from '../list/timer';
 import { FrameCounts } from '../frames';
@@ -19,8 +19,18 @@ const BADGE_ALARM = 'gsb-badge';
 const IDLE_BADGE = BETA ? BETA_BADGE_TEXT : '';
 
 export default defineBackground(() => {
+  // Every read-change-save of the settings here goes through one queue, so two quick clicks never lose a word.
+  const settingsWrite = serialQueue();
+  // A failed GIF defaults move leaves its mark unset, so the next worker start tries again.
+  const migrate = (reason: string, previousVersion?: string) =>
+    void settingsWrite(() => migrateSettings(reason, previousVersion)).catch((e) => console.warn('Spoiler Blocker: the GIF defaults move failed, tried again at the next start', (e as Error)?.name));
+  // Settings saved before 0.1.6 whose update run was missed or failed move at worker start.
+  migrate('start');
+
   chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('/welcome.html') });
+    // Saved settings from before 0.1.6 move to the new GIF defaults, once; in the settings queue, so a menu click never overwrites it.
+    migrate(details.reason, details.previousVersion);
     // After an update the popup says what is new, once (it shows only for a version that has release notes).
     const to = chrome.runtime.getManifest().version;
     if (details.reason === 'update' && isNewerVersion(to, details.previousVersion)) void chrome.storage.local.set({ whatsNew: { from: details.previousVersion, to } });
@@ -48,9 +58,6 @@ export default defineBackground(() => {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.settings) void scheduleAlarm();
   });
-
-  // Every read-change-save of the settings here goes through one queue, so two quick clicks never lose a word.
-  const settingsWrite = serialQueue();
 
   chrome.contextMenus.onClicked.addListener((info, tab) => settingsWrite(async () => {
     if (BETA && info.menuItemId === BETA_MENU_ID) return void looksWrong(info, tab);

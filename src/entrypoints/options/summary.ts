@@ -1,5 +1,6 @@
 // The "Current settings" panel of the options page: what is on, what differs from the defaults, the exceptions and the pause.
 // Read from the same settings the page saves, so it can't drift from them. The lines are built here without the page, so tests can.
+import { chatNoteAll } from '../../chat-note';
 import { el } from '../../ui/dom';
 import { BLACKOUT_TEXT, BLUR_TEXT, HIDE_MODE_TEXT, KIND_MODE_TEXT, MEDIA_NEAR_TEXT, PRESET_TEXT, PROTECT_TEXT, RARE_TEXT, REACTION_GIF_TEXT, REPLIES_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT } from '../../text';
 import { DEFAULT_SETTINGS, SITE_PICTURE_FIELDS, blockingStatus, timeOf, type Settings, type SiteOverride } from '../../settings';
@@ -171,7 +172,8 @@ export function buildSummary(s: Settings, now: number): Summary {
   const mediaWhy = s.hideMediaPosts ? noEffectBecause('hideMediaPosts', s) : undefined;
   const noEffect = mediaWhy ? [{ key: 'hideMediaPosts' as const, text: NO_EFFECT_WORDS[mediaWhy] }] : [];
   const hidden: Line[] = HIDDEN_KEYS.map((k) => {
-    const note = k === 'hideMediaPosts' ? noEffect[0]?.text : k === 'thumbsOnly' && s.thumbsOnly ? S.thumbsNote : undefined;
+    // Pictures on game pages only: say plainly that mixed feeds stay as they are.
+    const note = k === 'hideMediaPosts' ? noEffect[0]?.text : k === 'thumbsOnly' && s.thumbsOnly ? S.thumbsNote : k === 'mediaNearGame' && s.mediaNearGame === 'page' ? S.mediaPageNote : undefined;
     // No "(default)" here: "Differs from default" says what changed.
     return { key: k, text: `${S.labels[k]}: ${valueName(k, s[k], false)}`, ...(note ? { note } : {}) };
   });
@@ -254,7 +256,7 @@ function draw(box: HTMLElement, s: Settings, now: number, ui: PanelUi) {
   bar.setAttribute('aria-expanded', String(ui.open));
   const head = (text: string, ...more: (Node | string)[]) => el('h3', {}, text, ...more);
 
-  const body: Node[] = [el('p', { class: `sum-status ${sum.active ? 'on' : 'off'}` }, sum.status), ...(sum.on ? [el('p', { class: 'help' }, sum.level)] : []), ...(sum.reason ? [el('p', { class: 'help' }, sum.reason)] : [])];
+  const body: Node[] = [el('p', { class: `sum-status ${sum.active ? 'on' : 'off'}` }, sum.status), ...(sum.on ? [el('p', { class: 'help' }, sum.level)] : []), ...(sum.reason ? [el('p', { class: 'help' }, sum.reason)] : []), ...(sum.on ? [el('p', { class: 'help', id: 'sum-chat' }, chatNoteAll())] : [])];
   if (sum.on) {
     body.push(head(S.hiddenTitle), el('ul', { class: 'sum-hidden-list' }, ...sum.hidden.map((l) => hiddenLine(l))));
     // Grey at 0, the accent colour once something differs.

@@ -1,4 +1,5 @@
 import { parseAccount } from './accounts';
+import { isNewerVersion } from './versions';
 import { DEFAULT_HINTS } from './matcher/hints';
 import { TEXT } from './text';
 import { CATEGORIES, KINDS, KIND_BASE_LEVEL, KIND_CATEGORY, type Category, type Kind, type Strictness } from './types';
@@ -11,7 +12,7 @@ export type ReactionGifs = 'label' | 'picture';
 /** Pictures posted as a reply: 'show' leaves a bare one alone, 'cover' treats it like any picture. */
 export type ReplyPictures = 'show' | 'cover';
 /** The defaults for GIFs and photos posted as a reply, in one place. */
-export const REPLY_PICTURE_DEFAULTS = { replyGifs: 'show', replyPhotos: 'cover' } as const;
+export const REPLY_PICTURE_DEFAULTS = { replyGifs: 'cover', replyPhotos: 'cover' } as const;
 export type UpdateEvery = 'hourly' | '6h' | 'daily' | 'manual';
 /** How strongly a cover blurs. 'solid' replaces the content with a plain box. */
 export type BlurStrength = 'light' | 'medium' | 'heavy' | 'solid';
@@ -168,7 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hideImages: true,
   hideMediaPosts: true,
   mediaNearGame: 'post',
-  reactionGifs: 'label',
+  reactionGifs: 'picture',
   replyGifs: REPLY_PICTURE_DEFAULTS.replyGifs,
   replyPhotos: REPLY_PICTURE_DEFAULTS.replyPhotos,
   hideReplies: true,
@@ -482,7 +483,7 @@ export function settingsForGroup(s: Settings, group: SiteGroup): Settings {
 export type Pictures = Pick<Settings, SitePictureField>;
 
 /** What a scanner built without settings does (tests, previews of one choice): pictures are not checked. */
-export const BARE_PICTURES: Pictures = { hideImages: false, hideMediaPosts: true, mediaNearGame: 'page', reactionGifs: 'label', ...REPLY_PICTURE_DEFAULTS, thumbsOnly: false };
+export const BARE_PICTURES: Pictures = { hideImages: false, hideMediaPosts: true, mediaNearGame: 'page', reactionGifs: 'picture', ...REPLY_PICTURE_DEFAULTS, thumbsOnly: false };
 
 /** Each picture setting's values from the most lenient to the strictest. thumbsOnly false is stricter: words are hidden too. */
 const PICTURE_STRICTNESS: { [F in SitePictureField]: readonly Pictures[F][] } = {
@@ -711,6 +712,27 @@ export const PRESETS: Record<Exclude<Preset, 'custom'>, Partial<Settings>> = {
   blackout: { strictness: 'strict', blur: 'solid', hideMode: 'remove', showReason: false, mediaNearGame: 'post', reactionGifs: 'picture', replyGifs: 'cover', replyPhotos: 'cover', hideMediaPosts: true },
 };
 
+/**
+ * What the user typed in or added, one by one: the "My lists" tab (own words, words never to hide, spoiler and safe accounts,
+ * safe and strict sites), the hint words, and the per-site and site-group entries. "Reset to defaults" keeps these; "Clear my
+ * lists" empties only these. Everything else in Settings is a choice. Marks kept outside the settings (gifDefaults016) are
+ * never touched by either.
+ */
+export const LIST_KEYS = ['customWords', 'allowWords', 'blockedAccounts', 'allowAccounts', 'allowSites', 'blockSites', 'hintWords', 'sites', 'siteGroups'] as const satisfies readonly (keyof Settings)[];
+type ListKey = (typeof LIST_KEYS)[number];
+
+const listsOf = (s: Settings) => Object.fromEntries(LIST_KEYS.map((k) => [k, structuredClone(s[k])])) as Pick<Settings, ListKey>;
+
+/** Every choice back to how it came (a pause ends too), the lists kept. */
+export function resetChoices(s: Settings): Settings {
+  return normalizeSettings({ ...structuredClone(DEFAULT_SETTINGS), ...listsOf(s) });
+}
+
+/** The lists back to how they came (hint words to the built-in ones), every choice kept. */
+export function clearLists(s: Settings): Settings {
+  return normalizeSettings({ ...structuredClone(s), ...listsOf(DEFAULT_SETTINGS) });
+}
+
 export function applyPreset(s: Settings, name: Exclude<Preset, 'custom'>): Settings {
   return normalizeSettings({ ...s, ...PRESETS[name], preset: name });
 }
@@ -738,7 +760,7 @@ export function hostMatches(host: string, entries: string[]): boolean {
  * prefix: `host` plus `path` ("/r/gta", no query, no trailing slash); matches that path and everything below it,
  *         on the host and its subdomains. Whole segments only: "/r/gta" does not match "/r/gtaonline".
  * page:   `host` plus `path` that includes the cleaned, sorted query ("/watch?v=abc"; the home page is "/");
- *         matches exactly that address on exactly that host.
+ *         matches exactly that address on exactly that host. An app's route hash is part of it ("/mail/u/0/#inbox/abc", routeHash).
  * Host is lower case without "www.". Paths are compared ignoring letter case (most sites treat them so, and a
  * wrong "match" on a Strict entry is harmless); query values are compared exactly, because video ids are case sensitive.
  */
@@ -758,6 +780,16 @@ interface Address {
   path: string;
   /** Tracking removed, sorted, "a=1&b=2"; '' when none. */
   query: string;
+  /** The #hash without "#" when it is the page's route in an app (routeHash); '' otherwise. */
+  hash: string;
+}
+
+/**
+ * A #hash that picks the view in an app ("#/inbox/42", "#inbox/abc") on a folder address ("/", "/mail/u/0/"), as mail and
+ * other one-page apps do. Then it is part of which page it is. Any other hash is a place on the page ("#section-2") and is ignored.
+ */
+function routeHash(pathname: string, hash: string): string {
+  return pathname.endsWith('/') && /^#(!?\/|[a-z][\w-]*\/)[^/]/i.test(hash) ? hash.slice(1) : '';
 }
 
 /** Per-site extra query parts that do not change which page it is (where in the video, which playlist). */
@@ -806,12 +838,20 @@ function parseAddress(input: string): Address | null {
   if (short) {
     const p = new URLSearchParams(u.searchParams);
     p.set('v', short[1]!);
-    return { host: 'youtube.com', path: '/watch', query: cleanQuery(p, 'youtube.com') };
+    return { host: 'youtube.com', path: '/watch', query: cleanQuery(p, 'youtube.com'), hash: '' };
   }
-  return { host, path, query: cleanQuery(u.searchParams, host) };
+  return { host, path, query: cleanQuery(u.searchParams, host), hash: routeHash(u.pathname, u.hash) };
 }
 
-const pagePathOf = (a: Address) => (a.path || '/') + (a.query ? '?' + a.query : '');
+/** A page entry's path: "/watch?v=abc"; with a route, the folder keeps its "/" so it reads back the same ("/mail/u/0/#inbox/abc"). */
+const pagePathOf = (a: Address) => (a.hash ? a.path + '/' : a.path || '/') + (a.query ? '?' + a.query : '') + (a.hash ? '#' + a.hash : '');
+
+/** A page entry's path in parts, as an address is read: path without the "/" at the end ('/' for the home page), query, route. */
+function pageParts(path: string): { path: string; query: string; hash: string } {
+  const h = path.indexOf('#');
+  const [p = '/', query = ''] = (h < 0 ? path : path.slice(0, h)).split(/\?(.*)/s);
+  return { path: p.replace(/(.)\/+$/, '$1'), query, hash: h < 0 ? '' : path.slice(h + 1) };
+}
 
 /**
  * Turns what people paste into a pattern, or null for junk. Accepts a scheme, "www.", a port, a #fragment,
@@ -822,7 +862,7 @@ const pagePathOf = (a: Address) => (a.path || '/') + (a.query ? '?' + a.query : 
 export function parsePattern(input: string, kind?: SitePattern['kind']): SitePattern | null {
   const a = parseAddress(input);
   if (!a) return null;
-  const k = kind ?? (a.path || a.query ? 'page' : 'site');
+  const k = kind ?? (a.path || a.query || a.hash ? 'page' : 'site');
   if (k === 'site' || (k === 'prefix' && !a.path)) return { kind: 'site', host: a.host, path: '' };
   if (k === 'prefix') return { kind: 'prefix', host: a.host, path: a.path };
   return { kind: 'page', host: a.host, path: pagePathOf(a) };
@@ -831,6 +871,22 @@ export function parsePattern(input: string, kind?: SitePattern['kind']): SitePat
 /** Short text for a list row: "reddit.com", "reddit.com/r/gta", "youtube.com/watch?v=abc". */
 export function patternLabel(p: SitePattern): string {
   return p.host + (p.kind === 'site' ? '' : p.path === '/' && p.kind === 'page' ? '/' : p.path);
+}
+
+/** The label cut in the middle to fit one short line: "claude.ai/chat/…/abc". The query and route are kept whole when they fit. */
+export function shortLabel(p: SitePattern, max = 44): string {
+  const label = patternLabel(p);
+  if (label.length <= max) return label;
+  const cut = label.search(/[?#]/);
+  const base = cut < 0 ? label : label.slice(0, cut);
+  const rest = cut < 0 ? '' : label.slice(cut);
+  const segs = base.split('/');
+  if (segs.length > 3) {
+    const short = `${segs[0]}/${segs[1]}/…/${segs[segs.length - 1]}${rest}`;
+    if (short.length <= max) return short;
+  }
+  const head = Math.ceil((max - 1) / 2);
+  return label.slice(0, head) + '…' + label.slice(label.length - (max - 1 - head));
 }
 
 /** Path words that only name a kind of page. A part of a site that ends in one of these would cover far too much ("reddit.com/r"). */
@@ -859,9 +915,9 @@ export function patternChoices(url: string): SitePattern[] {
   return [{ kind: 'page', host: a.host, path: pagePathOf(a) }, ...parts.reverse(), { kind: 'site', host: a.host, path: '' }];
 }
 
-/** The path part ignoring letter case, the query exactly (video ids are case sensitive). */
+/** The path part ignoring letter case, the query and route exactly (video ids are case sensitive). */
 const pathKey = (path: string) => {
-  const q = path.indexOf('?');
+  const q = path.search(/[?#]/);
   return q < 0 ? path.toLowerCase() : path.slice(0, q).toLowerCase() + path.slice(q);
 };
 const patternKey = (p: SitePattern) => `${p.kind}|${p.host}|${pathKey(p.path)}`;
@@ -869,7 +925,7 @@ const patternKey = (p: SitePattern) => `${p.kind}|${p.host}|${pathKey(p.path)}`;
 /** The same entry: same kind and host, the path ignoring letter case, the query exactly. */
 export const samePattern = (a: SitePattern, b: SitePattern) => patternKey(a) === patternKey(b);
 
-/** The entry for exactly this page: address and query, without the #hash or tracking bits. Undefined for a non-web address. */
+/** The entry for exactly this page: address and query, without tracking bits; the #hash only when it is an app's route (routeHash). Undefined for a non-web address. */
 export function pagePattern(url: string): SitePattern | undefined {
   const a = parseAddress(url);
   return a ? { kind: 'page', host: a.host, path: pagePathOf(a) } : undefined;
@@ -917,8 +973,8 @@ export function urlMatches(url: string, patterns: SitePattern[]): boolean {
       const pp = p.path.toLowerCase();
       return underHost && (path === pp || path.startsWith(pp + '/'));
     }
-    const [pPath = '/', pQuery = ''] = p.path.split(/\?(.*)/s);
-    return a.host === p.host && (path || '/') === pPath.toLowerCase() && a.query === pQuery;
+    const e = pageParts(p.path);
+    return a.host === p.host && (path || '/') === e.path.toLowerCase() && a.query === e.query && a.hash === e.hash;
   });
 }
 
@@ -930,7 +986,7 @@ export function coveringEntry(patterns: SitePattern[], p: SitePattern): SitePatt
     if (v.kind === 'prefix') {
       if (p.kind === 'site' || !under) return false;
       const vp = v.path.toLowerCase();
-      const pp = p.path.toLowerCase().split('?')[0]!.replace(/\/$/, '');
+      const pp = p.path.toLowerCase().split(/[?#]/)[0]!.replace(/\/$/, '');
       return pp === vp || pp.startsWith(vp + '/');
     }
     return p.kind === 'page' && p.host === v.host && pathKey(p.path) === pathKey(v.path);
@@ -948,4 +1004,31 @@ export async function loadSettings(): Promise<Settings> {
 
 export async function saveSettings(s: Settings): Promise<void> {
   await chrome.storage.local.set({ settings: s });
+}
+
+/** The GIF defaults before 0.1.6, when reaction and reply GIFs were shown unless their label named the game. */
+const OLD_GIF_DEFAULTS = { reactionGifs: 'label', replyGifs: 'show' } as const;
+/** Set once the move below is done (or on a new install, which starts with the new defaults). */
+const GIF_DEFAULTS_DONE = 'gifDefaults016';
+
+/**
+ * Storage keeps the whole settings object, so an install from before 0.1.6 has the old GIF defaults saved as if picked. On the
+ * update each one still at its old default moves to the new default, once; a value picked on purpose cannot be told apart and
+ * moves too. Site entries hold only real choices and are left alone. Called from onInstalled, and at worker start ('start'):
+ * every 0.1.6 or later install sets the mark, so saved settings without it are from before 0.1.6 (a missed or failed update run).
+ */
+export async function migrateSettings(reason: string, previousVersion?: string): Promise<void> {
+  const got = await chrome.storage.local.get([GIF_DEFAULTS_DONE, 'settings']);
+  if (got[GIF_DEFAULTS_DONE]) return;
+  if (reason === 'install') return void (await chrome.storage.local.set({ [GIF_DEFAULTS_DONE]: true }));
+  const saved = got.settings;
+  if (reason === 'start') {
+    // Nothing saved: a new install, which onInstalled marks.
+    if (!saved || typeof saved !== 'object') return;
+  } else if (reason !== 'update') return;
+  else if (!saved || typeof saved !== 'object' || !isNewerVersion('0.1.6', previousVersion)) return void (await chrome.storage.local.set({ [GIF_DEFAULTS_DONE]: true }));
+  const next = { ...(saved as Record<string, unknown>) };
+  for (const k of ['reactionGifs', 'replyGifs'] as const) if (next[k] === OLD_GIF_DEFAULTS[k]) next[k] = DEFAULT_SETTINGS[k];
+  // One write, so the settings never move without the mark.
+  await chrome.storage.local.set({ settings: next, [GIF_DEFAULTS_DONE]: true });
 }

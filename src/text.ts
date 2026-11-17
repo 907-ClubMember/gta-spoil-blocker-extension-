@@ -42,6 +42,8 @@ export const TEXT = {
   hidden: (n: number) => fill(n === 0 ? words.text.hidden.none : n === 1 ? words.text.hidden.one : words.text.hidden.many, { count: n }),
   safeWhy: (kind: 'site' | 'prefix' | 'page', label: string) => fill(words.text.safeWhy[kind], { label }),
   strictHere: (label: string) => fill(words.text.strictHere, { label }),
+  chatStrict: (site: string) => fill(words.text.chatStrict, { site }),
+  chatStrictAll: (sites: string) => fill(words.text.chatStrictAll, { sites }),
   pausedUntil: (when: string) => fill(words.text.pausedUntil, { when }),
   listStaleSince: (date: string) => fill(words.text.listStale.since, { date }),
   whatsNewTitle: (version: string) => fill(words.text.whatsNew.title, { version }),
