@@ -331,7 +331,7 @@
   "replies": {
     "all": {
       "name": "Hide the replies under it too",
-      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X and old Reddit, each reply is always checked on its own."
+      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X, Reddit and Bluesky, each reply is always checked on its own."
     },
     "own": {
       "name": "Hide only that comment",
@@ -478,6 +478,13 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_9": [
+      "New Reddit and X: a hidden post keeps its author row and its action buttons in view; only its words and pictures are covered.",
+      "New Reddit and Bluesky: each reply under a hidden post is judged on its own words, with its own cover and label.",
+      "On new Reddit, \"Hide picture and video posts\" now covers only the post's picture, not its comments.",
+      "People's display names are never matched on Reddit, Twitch, Discord, YouTube and Steam, as on X.",
+      "Search results from official stores and the publisher show again on Google, Bing and DuckDuckGo, and YouTube videos from the publisher's, PlayStation's and Xbox's channels count as official."
     ],
     "v0_1_8": [
       "Settings: switching from Total blackout to Careful or Casual now really goes back to that preset's GIF and picture choices.",

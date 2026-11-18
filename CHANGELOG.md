@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.9
+
+### Highlights
+
+- New Reddit and X: a hidden post keeps its author row and its action buttons in view; only its words and pictures are covered.
+- New Reddit and Bluesky: each reply under a hidden post is judged on its own words, with its own cover and label.
+- On new Reddit, "Hide picture and video posts" now covers only the post's picture, not its comments.
+- People's display names are never matched on Reddit, Twitch, Discord, YouTube and Steam, as on X.
+- Search results from official stores and the publisher show again on Google, Bing and DuckDuckGo, and YouTube videos from the publisher's, PlayStation's and Xbox's channels count as official.
+
+### Changes
+
+- **Reddit and X posts.** A post on new Reddit or X hidden for its words keeps its author row and its action buttons (vote, reply, share) in view; only its words, pictures and any quoted post are covered. If those rows themselves name something on the list, the whole post is covered as before.
+- **Replies.** On new Reddit and Bluesky, replies under a hidden post are no longer hidden with it. Each is judged on its own words and gets its own cover and label. A weak name or a strong spoiler phrase in a reply still covers it.
+- **Picture and video posts.** On new Reddit, "Hide picture and video posts" covers only the post's picture. Its comments are judged on their own words, as with the switch off.
+- **Display names.** A person's display name or handle is never matched against the list on Reddit, Twitch, Discord, YouTube and Steam, as it already was on X. A comment or chat line is judged only on its words. This also means a listed name used alone as a username is no longer covered; a name written as a spoiler still is.
+- **YouTube official channels.** Videos from the publisher's, PlayStation's and Xbox's channels get the same pass as other official content: their thumbnail and title show, unless a spoiler word covers them. The channel is checked by its handle or id, never by the name shown.
+
+### Fixes
+
+#### Search engines
+- "Let official stores and the publisher's site through" works again on Google, Bing and DuckDuckGo, including a result's extra links and redirect links. Only the engine's own "more results from this site" search is ignored; any other engine link in a result still keeps it covered.
+
+#### Reddit
+- Profile pictures and community icons are no longer covered just for being near a post about GTA 6.
+- Ads are judged on their own words, never on what the page is about.
+
+#### Google
+- On a big topic page that holds the search results, each result is covered on its own, not all of them.
+
+#### All sites
+- A short article or list that wraps several posts covers only the post that matches, not all of them.
+- A match in a menu, tab bar, toolbar or button is covered at the smallest piece, and a reply box keeps its text field and Send button.
+- A match in a tab or menu entry is covered as the whole entry, not as a tiny link inside it.
+- Site rules apply only to a site's main app, so a long article on a site's blog or help pages is no longer covered as one post.
+
 ## 0.1.8
 
 ### Highlights

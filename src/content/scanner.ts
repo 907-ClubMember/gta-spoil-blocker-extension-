@@ -5,7 +5,7 @@ import { anchorFor, type Why } from '../reason-settings';
 import { SOURCE_SENTENCE, SOURCE_TAG, pickSource, type CoverResult, type Source, type SourceContext } from '../cover-source';
 import { BARE_PICTURES, type BlurStrength, type HideMode, type Pictures, type RevealMode } from '../settings';
 import { DEBUG_WHY } from '../debug-flag';
-import { unwrap, OFFICIAL_SITES, TRAILER_WORDS, handleOf, hasOfficialHandles, hasPublisherAccounts, isOfficialChannelLink, isOfficialHandle, isOfficialName, isEngineTool, isPublisherHandle, isResultsPage, isSearchStoreLink, isStoreLink, isStorePage, isYouTube } from '../adapters/official';
+import { unwrap, isPublisherChannel, isOfficialStoreHost, OFFICIAL_SITES, TRAILER_WORDS, handleOf, hasOfficialHandles, hasPublisherAccounts, isOfficialChannelLink, isOfficialHandle, isOfficialName, isEngineTool, searchEngine, isPublisherHandle, isResultsPage, isSearchStoreLink, isStoreLink, isStorePage, isYouTube } from '../adapters/official';
 import { discordMessageOf, inRedditGiphy, isLibraryGif, libraryLabel, libraryUrls, placeholderFor } from './gifs';
 import { isGamePlace, readChatPlace } from './discord-context';
 import { ACCESSORIES, EMBED_AUTHOR, LINK_PREVIEW, SOURCE_HOST, embedSource, embedText, embedsIn, isOfficialEmbed, textHash } from './discord-embeds';
@@ -63,6 +63,29 @@ const BLOCK_SELECTOR = 'article, [role="article"], li, p, h1, h2, h3, h4, h5, h6
 /** Blocks that can hold a whole article's worth of other content, so they are hidden only when short. */
 const BIG_BLOCK_SELECTOR = 'article, [role="article"], li, td, dd';
 const SMALL_BOX_SELECTOR = 'div, section, aside, tr, dl';
+/** Fields a person types in or picks from: never covered with the box around them (keepRows). */
+/** A search result's linked title: what tells a result apart from a panel's own sections (cardFor, panelSplit). */
+const RESULT_TITLE = 'a h3, h3 a, a [role="heading"]';
+const FIELD_SELECTOR = 'textarea, select, input:not([type="hidden"]), [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="tab"]';
+/** A unit of a block of units (ScanOptions.subCards): a block element with at least this many characters of words. */
+const UNIT_TAGS = new Set(['DIV', 'LI', 'ARTICLE', 'A', 'G-INNER-CARD', 'G-CARD']);
+const UNIT_MIN_CHARS = 10;
+const UNIT_CONTROL = 'a[href], img, [role="button"], [aria-expanded]';
+/**
+ * A profile picture or community icon (author rows, moderator lists, comment headers): never covered for being near the game, whatever its
+ * file's size; only its own label can cover it (0.1.8 report: a game community's moderator list). The box around it, its link to a
+ * person or community, or the file's own name says so.
+ */
+const AVATAR_SELECTOR = '[avatar], .avatar, [class*="avatar" i], [data-testid*="avatar" i], shreddit-subreddit-icon, a[href^="/user/"]:not([href*="/comments/"]), a[href^="/u/"]:not([href*="/comments/"]), a[href*="reddit.com/user/"]:not([href*="/comments/"]), a[href^="/r/"]:not([href*="/comments/"], [href*="/wiki/"])';
+/** Reddit's own profile and community icon files (256 px files drawn at 24-40 px). */
+const AVATAR_FILE = /^https:\/\/(?:styles\.redditmedia\.com|www\.redditstatic\.com|i\.redd\.it\/snoovatar)\/.*(?:profileIcon|communityIcon|avatar|snoovatar)/i;
+/** A promoted post (an ad): judged on its own words only, never on the page's (0.1.8 report: an ad's picture covered in a game community). */
+const AD_SELECTOR = 'shreddit-ad-post, shreddit-post[promoted], .thing.promotedlink, .thing.promoted';
+/** A page's own controls: words in them are covered at the smallest piece (CONTROL_PIECE), never the whole menu, bar or button row (0.1.8). */
+const CONTROL_SELECTOR = 'nav, [role="navigation"], [role="tablist"], [role="menu"], [role="menubar"], [role="toolbar"], button, label, [role="tab"], [role="menuitem"]';
+/** The entry of a control (a tab, a menu entry, a button): covered whole before the link inside it. */
+const CONTROL_ENTRY = 'li, button, label, [role="tab"], [role="menuitem"]';
+const CONTROL_PIECE = 'a, li, button, label, [role="tab"], [role="menuitem"], h1, h2, h3, h4, h5, h6';
 /** Smallest units whose text is read as one piece, so a name split by bold or link markup is still caught. */
 const JOIN_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, a, blockquote, td, dd, figcaption';
 const BAR_ACTS = new WeakMap<Element, Record<string, (e: Event) => void>>();
@@ -234,10 +257,12 @@ const HIDDEN = '[data-gsb], [data-gsb-revealed], .gsb-bar';
  * replies: the wrappers on that way carry data-gsb-in=<mode> and cover their other children in turn,
  * and a reply or reply area carries data-gsb-in="keep". Anything unmarked stays covered, so content
  * that arrives late inside the comment is hidden without any script having to notice it.
+ * A post covered with its header and action rows in view (data-gsb-keep, see ScanOptions.keepParts) covers each child but those
+ * (data-gsb-kept) in the same way; a row deeper in the card has the wrappers on its way marked data-gsb-via, which cover their other children.
  * data-gsb-hold=<mode> keeps an old cover on while a restart rescans with a new list or settings (content.ts holdCovers).
  */
 export const COVERS = (mode: HideMode): string =>
-  `[data-gsb="${mode}"]:not([data-gsb-own]),[data-gsb="${mode}"][data-gsb-own]>:not([data-gsb-in],.gsb-bar),[data-gsb-in="${mode}"]>:not([data-gsb-in],.gsb-bar),[data-gsb-under="${mode}"],[data-gsb-hold="${mode}"]`;
+  `[data-gsb="${mode}"]:not([data-gsb-own],[data-gsb-keep]),[data-gsb="${mode}"][data-gsb-own]>:not([data-gsb-in],.gsb-bar),[data-gsb="${mode}"][data-gsb-keep]>:not([data-gsb-kept],[data-gsb-via],.gsb-bar),[data-gsb="${mode}"][data-gsb-keep] [data-gsb-via]>:not([data-gsb-kept],[data-gsb-via],.gsb-bar),[data-gsb-in="${mode}"]>:not([data-gsb-in],.gsb-bar),[data-gsb-under="${mode}"],[data-gsb-hold="${mode}"]`;
 
 const BLUR_CSS: Record<BlurStrength, string> = {
   light: 'filter:blur(6px)',
@@ -281,7 +306,7 @@ ${rule('remove', 'display:none!important')}
 export const cssFor = (blur: BlurStrength = 'medium', layers?: PlayerLayers): string => `
 ${COVERS('blur')}{${BLUR_CSS[blur]}!important;clip-path:inset(0)!important;user-select:none!important;pointer-events:none!important}
 /* Nothing inside a blurred cover takes a click (a player's own buttons set pointer-events:auto); the label is a sibling. */
-[data-gsb="blur"]:not([data-gsb-own]) *{pointer-events:none!important}
+[data-gsb="blur"]:not([data-gsb-own],[data-gsb-keep]) *,[data-gsb="blur"][data-gsb-keep]>:not([data-gsb-kept],[data-gsb-via]) *,[data-gsb="blur"][data-gsb-keep] [data-gsb-via]>:not([data-gsb-kept],[data-gsb-via]) *{pointer-events:none!important}
 ${COVERS('collapse')},${COVERS('remove')}{display:none!important}
 .gsb-bar{all:initial;display:block;flex:none;align-self:flex-start;min-width:max-content;position:relative;z-index:2147483647;box-sizing:border-box;margin:6px 0 2px;padding:3px 10px;font:500 12px/1.4 system-ui,sans-serif;
  color:#fff;background:#23262a;border:0;border-radius:999px;cursor:pointer;text-align:left;user-select:none}
@@ -418,6 +443,16 @@ export interface ScanOptions {
   allowStores?: boolean;
   /** Site adapter selector for regions hidden whole, even when they hold smaller cards. */
   panels?: string;
+  /** Card selector -> its children that stay in view when it is covered for its words (header and action rows): Adapter.keepParts. */
+  keepParts?: Record<string, string>;
+  /** Panels that are no panel when they hold two or more cards (Adapter.panelSplit). */
+  panelSplit?: string;
+  /** The cards counted for panelSplit (Adapter.splitCards); default subCards, else containers. */
+  splitCards?: string;
+  /** Cards that are blocks of several units of one kind (Adapter.subCards): the unit holding a match is its own card. */
+  subCards?: string;
+  /** Cards named by a bare generic tag: one longer than a post is read and covered with the general rules (Adapter.cardCap). */
+  cardCap?: string;
   /** Messages are a flat list (a chat). */
   chat?: boolean;
   /** A fast chat's message rows: each is judged on its own words at Strict, whatever the person's level. */
@@ -896,6 +931,8 @@ export class Scanner {
   private about = new WeakMap<Element, { len: number; why: Why | null }>();
   /** Posts holding a weak term that nothing has qualified yet; re-checked if a game mention arrives later. */
   private waiting = new WeakSet<Element>();
+  /** When a wide unit's waiting units were last read again (judgePost): once per pass while nothing changed. */
+  private rescanPass = new WeakMap<Element, { pass: number; changes: number }>();
   /** Per post: text length at which the "game plus spoiler word" rule was last tried. */
   /** Chat lines judged with a spoiler word but no game mention in reach yet, with a hash of the text they were judged with. */
   private spoilTried = new WeakMap<Element, number>();
@@ -1398,6 +1435,15 @@ export class Scanner {
     const text = node.nodeValue;
     const parent = node.parentElement;
     if (!text || !parent) return;
+    // Loose words in a wrapper on the way to a row kept in view (keepRows) are not under the cover: the whole card is covered instead.
+    if (text.trim() && parent.hasAttribute('data-gsb-via')) {
+      const card = parent.closest('[data-gsb-keep]');
+      if (card) {
+        this.clearKeep(card);
+        this.changes++;
+        return;
+      }
+    }
     // Loose text right beside a hidden comment's replies cannot be covered on its own: hide the comment whole.
     if (this.marks.size && text.trim() && (parent.hasAttribute('data-gsb-own') || this.onPath(parent))) {
       const h = parent.closest('[data-gsb][data-gsb-own]');
@@ -1429,8 +1475,9 @@ export class Scanner {
     }
     // A reply under a covered main post (X) is read as on a page about the game (replyContext).
     const inThread = (this.ctxKey !== null || !!this.opts.ownThreads) && this.replyContext(this.containerFor(parent));
-    const thread = !this.pageContext && inThread;
-    const ctx = this.pageContext || thread || this.gamePlace(parent);
+    const pageHere = this.pageAt(parent);
+    const thread = !pageHere && inThread;
+    const ctx = pageHere || thread || this.gamePlace(parent);
     const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(parent));
     if (res) {
       this.hide(this.containerFor(parent), this.settleStrict(res, parent), found.strong.size ? 'alone' : found.context ? 'mention' : this.chatLevel(parent) ? 'chat' : thread ? 'reply' : 'page', parent);
@@ -1441,7 +1488,7 @@ export class Scanner {
     // The game's name has just turned up: pictures beside it that were looked at earlier are looked at again.
     this.relook(parent, found);
     if ((found.spoil.size || found.context || ((this.chatLevel(parent) || inThread) && CHAT_PLACE_PHRASES.test(text))) && this.spoilerPost(parent)) return;
-    if (!this.pageContext && this.judgePost(parent, found)) return;
+    if (!pageHere && this.judgePost(parent, found)) return;
     this.checkJoined(parent);
   }
 
@@ -1506,7 +1553,8 @@ export class Scanner {
     this.spoilPass.set(post, { pass: this.pass, changes: this.changes, gen: this.contextGen });
     const cards = this.opts.containers;
     // A site post is judged on its own words: the replies nested inside it are posts in their own right.
-    const own = cards && post.matches(cards) ? this.ownText(post, cards) : this.textOf(post, POST_READ_CHARS);
+    // A block of units (Adapter.subCards) read for words outside its units: each unit is read on its own.
+    const own = cards && post.matches(cards) ? (this.hasUnits(post) ? this.outsideUnits(post) : this.ownText(post, cards)) : this.textOf(post, POST_READ_CHARS);
     const text = `${own} ${this.unseenText(post)}`;
     // Keyed on a hash of the text, not its length: an edit to a text of the same length is judged again.
     const hash = textHash(text);
@@ -1520,7 +1568,7 @@ export class Scanner {
     const inThread = this.replyContext(post);
     // A chat line in a Discord game place is read as on a page about the game.
     const gp = this.gamePlace(el);
-    const page = (this.pageContext || inThread || gp) && (!apart || f.spoil.has('story'));
+    const page = (this.pageAt(post) || inThread || gp) && (!apart || f.spoil.has('story'));
     const phrase = inThread && CHAT_PLACE_PHRASES.test(own);
     // A chat line in a game place with a strong story phrase: covered with no name beside it (see CHAT_PLACE_PHRASES).
     const place = !!this.chatLevel(el) && (this.chatGame || this.pageContext) && CHAT_PLACE_PHRASES.test(own);
@@ -1594,7 +1642,24 @@ export class Scanner {
       this.waiting.add(post);
       return false;
     }
-    // A game mention with no name in it: it may complete a post whose name arrived first.
+    // A game mention with no name in it: it may complete a post whose name arrived first. Also one of the smaller units inside the wide
+    // unit around it (see wideUnit): those are read again.
+    const wide = this.wideUnit(el);
+    // At most once per pass while nothing changed: a unit still undecided after it (its words past the read cap) does not start it again.
+    const rp = this.rescanPass.get(wide);
+    if (wide !== post && wide.contains(post) && !this.rescanning.has(wide) && !(rp && rp.pass === this.pass && rp.changes === this.changes)) {
+      this.rescanPass.set(wide, { pass: this.pass, changes: this.changes });
+      const held = [...wide.querySelectorAll('*')].filter((u) => this.waiting.has(u));
+      if (held.length) {
+        for (const u of held) { this.waiting.delete(u); this.about.delete(u); this.spoilTried.delete(u); }
+        this.rescanning.add(wide);
+        try {
+          this.scan(wide);
+        } finally {
+          this.rescanning.delete(wide);
+        }
+      }
+    }
     if (this.waiting.has(post) && !this.rescanning.has(post)) {
       this.waiting.delete(post);
       this.about.delete(post);
@@ -1675,11 +1740,20 @@ export class Scanner {
 
   /** A reply or comment sits inside the post it answers: does any enclosing post name the game in its own words? */
   private repliesToMention(post: Element): boolean {
+    // A post of a short wrapper of posts (see containerFor): the wrapper's own words (its heading) are the thread it is in.
+    // The unit this match had before units, controls and fields were split off (wideUnit): the game named anywhere in it counts.
+    const wide = this.wideUnit(post);
+    if (wide !== post && wide.contains(post)) {
+      const cs = this.opts.containers;
+      if (this.matcher.inspect(`${cs && wide.matches(cs) ? this.ownText(wide, cs) : this.textOf(wide, POST_READ_CHARS)} ${this.unseenText(wide)}`).context) return true;
+    }
     const sel = this.opts.containers ?? POST_SELECTOR;
     // With no site rule, a paragraph inside an article is not a reply to it: only a post nested inside another post is (a comment
     // list item inside an article). Without this one mention in a long article made every later paragraph with a weak name a "reply".
     if (!this.opts.containers && !post.matches(sel)) return this.followsMain(post);
     let up = post.parentElement?.closest(sel) ?? null;
+    // A unit of a block of units (Adapter.subCards) is not a reply to the block: its neighbours' words are not its post's.
+    if (up && this.opts.subCards && up.matches(this.opts.subCards) && this.unitIn(up, post)) up = up.parentElement?.closest(sel) ?? null;
     for (let depth = 0; up && depth < 4; depth++, up = up.parentElement?.closest(sel) ?? null) {
       if (this.matcher.inspect(this.ownText(up, sel)).context) return true;
     }
@@ -1815,6 +1889,8 @@ export class Scanner {
   private followsMain(post: Element): boolean {
     const c = this.mc;
     if (!c?.el || !this.inRun(post)) return false;
+    // Never a post of the feed that ends the thread (new Reddit's "more posts"), as in cover and replyContext.
+    if (this.opts.threadEnd && post.closest(this.opts.threadEnd)) return false;
     if (c.namesPass !== this.pass) {
       c.names = this.matcher.inspect(this.ownText(c.el, this.opts.containers ?? POST_SELECTOR)).context;
       c.namesPass = this.pass;
@@ -1846,7 +1922,8 @@ export class Scanner {
 
   /**
    * The main post is not hidden whole but its picture is (a picture-only post: only the picture is covered, the author row stays): for the
-   * replies under it that is the same, they stay covered (people describe a spoiler picture in plain words there, which no list can catch).
+   * replies under it that counts as the post covered where the comments sit inside the post (Instagram, Facebook), and where each reply is
+   * judged on its own words (X, old and new Reddit: as on a page about the game). Never to lay a comment section under the picture's cover.
    */
   private holdsPictureCover(main: Element): boolean {
     const cards = this.opts.containers;
@@ -1863,7 +1940,9 @@ export class Scanner {
       for (const h of main.querySelectorAll(whys)) if (!h.closest(inside) && !this.revealed.has(h)) return true;
       return false;
     }
-    if (!this.opts.mediaPostPictures) return false;
+    // Elsewhere only where each reply is judged on its own words (X, old and new Reddit): there it opens the reply context (replyContext).
+    // Never the comments covered with it: "Hide picture and video posts" covers the post's pictures, not its comment section.
+    if (!this.opts.mediaPostPictures || !this.ownRepliesHere()) return false;
     for (const h of main.querySelectorAll('[data-gsb][data-gsb-why="media"]')) if (h.closest(cards) === main && !this.revealed.has(h)) return true;
     return false;
   }
@@ -1941,7 +2020,7 @@ export class Scanner {
   private startCover(): void {
     const key = this.threadKey();
     const cell = this.anchor?.cell;
-    // Where each reply is judged on its own words (X, old Reddit), nothing is covered with the main post: the replies are read as on a page about the game.
+    // Where each reply is judged on its own words (X, Bluesky, Reddit), nothing is covered with the main post: the replies are read as on a page about the game.
     if (this.ownRepliesHere()) { this.startReplyContext(); return; }
     if (!this.opts.containers || key === null || !cell || this.opts.hideReplies === false || this.mainShown(this.mc?.el, key)) return;
     this.ensureAnchor();
@@ -2000,6 +2079,8 @@ export class Scanner {
    * (old Reddit): the covered comment is its thread.
    */
   private replyContext(post: Element): boolean {
+    // Never a post of the feed that ends the thread (new Reddit's "more posts"), as in cover.
+    if (this.opts.threadEnd && post.closest(this.opts.threadEnd)) return false;
     // Not once the person showed the main post (audit F2): its replies are then judged as anywhere else.
     if (this.ctxKey !== null && this.ownRepliesHere() && this.ctxKey === this.threadKey() && !this.revealedThreads.has(this.ctxKey) && post !== this.mc?.el && this.inRun(post)) return true;
     return this.underOwnThread(post);
@@ -2013,11 +2094,14 @@ export class Scanner {
   private rereadReplies(el: Element): void {
     const sel = this.opts.ownThreads;
     if (!sel) return;
-    const c = el.matches(sel) ? el : el.parentElement?.matches(sel) ? el.parentElement : null;
+    // ...or its own part deep inside it (new Reddit's words, coverParts).
+    const up = el.parentElement?.closest(sel);
+    const c = el.matches(sel) ? el : el.parentElement?.matches(sel) ? el.parentElement : up && this.coverPartOf(up) === el ? up : null;
     if (!c) return;
     // Its direct replies: reading one reads the replies under it too.
     for (const r of c.querySelectorAll(sel)) {
-      if (r.parentElement?.closest(sel) !== c || this.hidden.has(r) || [...r.children].some((k) => this.hidden.has(k))) continue;
+      const rp = this.coverPartOf(r);
+      if (r.parentElement?.closest(sel) !== c || this.hidden.has(r) || [...r.children].some((k) => this.hidden.has(k)) || (rp && this.hidden.has(rp))) continue;
       this.about.delete(r);
       this.spoilTried.delete(r);
       this.scan(r);
@@ -2029,13 +2113,17 @@ export class Scanner {
     const sel = this.opts.ownThreads;
     if (!sel || !post.matches(sel)) return false;
     const on = (e: Element) => this.hidden.has(e) && !this.revealed.has(e) && this.forGame(e);
-    for (let up = post.parentElement?.closest(sel); up; up = up.parentElement?.closest(sel)) if (on(up) || [...up.children].some(on)) return true;
+    for (let up = post.parentElement?.closest(sel); up; up = up.parentElement?.closest(sel)) {
+      // Its own part may sit deep inside it (new Reddit's words).
+      const part = this.coverPartOf(up);
+      if (on(up) || [...up.children].some(on) || (!!part && on(part))) return true;
+    }
     return false;
   }
 
   /**
    * Are the replies of this thread judged on their own words (ownReplies), never covered with its main post? On the whole site, or for a main
-   * post of `ownRepliesOf` (old Reddit's .thing.link: new Reddit's post keeps its comments covered with it).
+   * post of `ownRepliesOf` (Reddit's posts, old and new).
    */
   private ownRepliesHere(): boolean {
     if (this.opts.ownReplies) return true;
@@ -2134,6 +2222,27 @@ export class Scanner {
     if (!this.anchorStale && !(cell.isConnected && this.holdsOther(cell, m, cards)) && !(m.isConnected && !cell.contains(m))) return;
     if (this.coverKey !== null) this.uncover();
     this.setAnchor(m);
+    // Each reply judged on its own (X, Bluesky, Reddit): a post read as a reply while the block was too wide (a post beside the thread, read
+    // before the comments arrived) is judged again on its own words (0.1.8). Only the covers reading it as a reply can give; a cover its own
+    // words still call for comes back.
+    if (this.ctxKey === null || !this.ownRepliesHere()) return;
+    for (const h of [...this.hidden.keys()]) {
+      const card = h.closest(cards);
+      if (!card || card === m || m.contains(card) || card.contains(m) || this.inRun(card)) continue;
+      if (!['reply', 'spoiler-word', 'near-game', 'media'].includes(h.getAttribute('data-gsb-why') ?? '')) continue;
+      this.unhide(h);
+      this.about.delete(card);
+      this.spoilTried.delete(card);
+      if (!card.isConnected) continue;
+      // Read whatever the joined-text cache says (as rejudge): the card reads the same as before.
+      const before = this.forceJoin;
+      this.forceJoin = true;
+      try {
+        this.scan(card);
+      } finally {
+        this.forceJoin = before;
+      }
+    }
   }
 
   /** The main post was shown again: its replies are uncovered and judged on their own. */
@@ -2289,20 +2398,25 @@ export class Scanner {
   /** "<b>First</b> <b>Last</b>" never matches piece by piece, so read the enclosing block as one text. */
   private checkJoined(el: Element): void {
     // Inside a site post with no paragraph of its own (a tweet is a pile of spans), the post is the block.
-    const inline = el.closest(JOIN_SELECTOR);
+    const join = el.closest(JOIN_SELECTOR);
+    // A short wrapper of several posts: the post around the text (see containerFor).
+    const inline = join && join.matches(POST_SELECTOR) && (join.textContent?.length ?? 0) <= MAX_POST_CHARS ? (this.unitBelow(join, el) ?? join) : join;
     const cards = this.opts.containers;
-    const block = inline ?? (cards ? el.closest(cards) : null);
+    const card = !inline && cards ? el.closest(cards) : null;
+    // A block of units (Adapter.subCards): the unit around the text, not the whole block.
+    const block = inline ?? (card ? this.unitOf(card, el) : null);
     if (!block || block.childElementCount === 0) return;
     // Every piece of text in a card leads here: read the block once per pass, unless a cover went on or came off since.
     const seen = this.joinedPass.get(block);
     if (seen && seen.pass === this.pass && seen.changes === this.changes) return;
     this.joinedPass.set(block, { pass: this.pass, changes: this.changes, gen: this.contextGen });
     // A post's own words only: replies nested inside it are posts in their own right.
-    const text = inline ? this.joinedText(block) : this.ownText(block, cards!);
+    // A unit is no card of its own: all its words. A block of units read for words outside them: only those (each unit is read on its own).
+    const text = inline || !block.matches(cards!) ? this.joinedText(block) : card && block === card && this.hasUnits(card) ? this.outsideUnits(card) : this.ownText(block, cards!);
     if (text.length > MAX_POST_CHARS || (!this.forceJoin && seen?.gen === this.contextGen && this.joined.get(block) === text.length)) return;
     this.joined.set(block, text.length);
     const found = this.matcher.inspect(text);
-    const ctx = this.pageContext || this.gamePlace(block);
+    const ctx = this.pageAt(block) || this.gamePlace(block);
     const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(block));
     if (res) this.hide(this.containerFor(block), this.settleStrict(res, block), found.strong.size ? 'alone' : found.context ? 'mention' : this.chatLevel(block) ? 'chat' : 'page', block);
     else this.headingHide(block, found, block);
@@ -2701,6 +2815,68 @@ export class Scanner {
     s.removeProperty('filter');
   }
 
+  /**
+   * A card covered for its words keeps its header and action rows in view (Adapter.keepParts): never when the match is in one of them or
+   * they name anything on the list. Its other children, ones added later too, stay covered by the cover rule (COVERS).
+   */
+  private keepRows(el: Element, why: Why, at?: Element): void {
+    this.clearKeep(el);
+    if (why === 'near-game' || why === 'media') return;
+    // A small box holding a text field (a reply box, a form): covered with the field, a choice and the buttons kept usable.
+    if (el.matches(SMALL_BOX_SELECTOR) && el.querySelector(FIELD_SELECTOR) && !(this.opts.containers && el.matches(this.opts.containers)) && !(this.opts.panels && el.matches(this.opts.panels))) {
+      const kept = [...el.children].filter((k) => k.matches(`${FIELD_SELECTOR}, button`) || !!k.querySelector(FIELD_SELECTOR));
+      // A kept child with words of its own beside its field would leave them readable: then the box is covered whole.
+      // (A field's own label is the form's words, read anyway since kept rows are read: see skip.)
+      const wordy = (k: Element) => !k.matches(`${FIELD_SELECTOR}, button`) && [...k.querySelectorAll('*')].some((d) => !d.closest(`${FIELD_SELECTOR}, button, label, legend`) && [...d.childNodes].some((n) => n.nodeType === 3 && !!n.nodeValue?.trim()));
+      if (!kept.length || kept.some(wordy) || (at && at !== el && kept.some((k) => k.contains(at)))) return;
+      this.markKeep(el, kept);
+      return;
+    }
+    const parts = this.opts.keepParts;
+    if (!parts) return;
+    for (const [card, sel] of Object.entries(parts)) {
+      if (!el.matches(card)) continue;
+      let kept: Element[];
+      try {
+        // Anywhere in the card (X's rows sit deep in it), never inside a post quoted in it (a link box of its own), nor one inside another.
+        const quoted = (k: Element) => { for (let a = k.parentElement; a && a !== el; a = a.parentElement) if (a.matches('[role="link"]')) return true; return false; };
+        kept = [...el.querySelectorAll(sel)].filter((k) => !quoted(k));
+        kept = kept.filter((k) => !kept.some((o) => o !== k && o.contains(k)));
+      } catch {
+        return;
+      }
+      if (!kept.length || (at && at !== el && kept.some((k) => k.contains(at)))) return;
+      // The match is often found in the card read as a whole: rows that hold any listed name or a spoiler word are not kept. The game's own
+      // name (a game community's name in the header) is a marker, never a spoiler by itself.
+      for (const k of kept) {
+        const f = this.matcher.inspect(` ${this.textOf(k, 600)} ${this.unseenText(k, true)}`);
+        if (f.strong.size || f.weak.size || f.spoil.size) return;
+      }
+      this.markKeep(el, kept);
+      return;
+    }
+  }
+
+  /** Keep `kept` in view under the cover of `el` (keepRows): the rows, and the wrappers on their way down. */
+  private markKeep(el: Element, kept: Element[]): void {
+    // A wrapper on the way that holds words of its own would leave them in view: then nothing is kept.
+    for (const k of kept) {
+      for (let a = k.parentElement; a && a !== el; a = a.parentElement) if ([...a.childNodes].some((n) => n.nodeType === 3 && !!n.nodeValue?.trim())) return;
+    }
+    for (const k of kept) {
+      k.setAttribute('data-gsb-kept', '');
+      for (let a = k.parentElement; a && a !== el; a = a.parentElement) a.setAttribute('data-gsb-via', '');
+    }
+    el.setAttribute('data-gsb-keep', '');
+  }
+
+  /** Take keepRows' marks off. */
+  private clearKeep(el: Element): void {
+    el.removeAttribute('data-gsb-keep');
+    for (const k of el.querySelectorAll('[data-gsb-kept], [data-gsb-via]')) k.removeAttribute(k.hasAttribute('data-gsb-kept') ? 'data-gsb-kept' : 'data-gsb-via');
+    for (const k of el.querySelectorAll('[data-gsb-via]')) k.removeAttribute('data-gsb-via');
+  }
+
   private uncoverEl(el: Element, bar = this.hidden.get(el)): void {
     this.releaseMedia(el);
     giveBackFilter(el);
@@ -2708,6 +2884,7 @@ export class Scanner {
     if (this.stacked.size || bar?.hasAttribute('data-gsb-stacked')) this.scheduleStack();
     this.unmark(el);
     el.removeAttribute('data-gsb');
+    this.clearKeep(el);
     el.removeAttribute('data-gsb-why');
     el.removeAttribute('data-gsb-source');
     // Its label goes with it, so nothing would end a peek: a peek left behind would void the next cover on it.
@@ -2988,7 +3165,7 @@ export class Scanner {
     if (mode === 'off' || !this.matcher.judgesPosts || this.skip(el) || el.closest('nav, header, footer')) return;
     // A reply under a covered main post (X, see replyContext) counts as on a page about the game, as in nearGame.
     const c = this.opts.containers ? el.closest(this.opts.containers) : null;
-    const page = this.pageContext || (!!c && this.replyContext(c));
+    const page = this.pageAt(el) || (!!c && this.replyContext(c));
     if (page || (mode === 'post' && this.namedBeside(el, `${own} ${label}`))) {
       this.hideMedia(el, this.pictureRes((g) => g.mediaNearGame !== 'off' && (page || g.mediaNearGame === 'post')), 'near-game');
     }
@@ -3485,7 +3662,7 @@ export class Scanner {
     if (this.opts.embeds && this.embedMedia(el)) return;
     // A reply under a covered main post (X, see replyContext) is on a page about the game for its pictures too, as for its words.
     const c = this.opts.containers ? el.closest(this.opts.containers) : null;
-    const page = this.pageContext || (!!c && this.replyContext(c));
+    const page = this.pageAt(el) || (!!c && this.replyContext(c));
     // Not a page about the game: only a picture in a card whose own words are covered (its title part, say) is still covered.
     if (mode === 'page' && !page && (!c || !this.wordsCovered(c))) return;
     // A picture inside a small component's shadow root (Reddit's faceplate-img) is judged and covered at that component.
@@ -3497,7 +3674,9 @@ export class Scanner {
     if (this.officialTrailer(at)) return;
     // In a post or result card that is covered, or that names the game on a page about the game, every picture goes, whatever
     // its size (Reddit's 120 px search thumbnails, Google's result images). Avatars outside cards are not touched.
-    const card = this.opts.containers ? at.closest(this.opts.containers) : null;
+    const card0 = this.opts.containers ? at.closest(this.opts.containers) : null;
+    // In a block of units (Adapter.subCards) the picture's unit is its card: a covered card beside it does not take it.
+    const card = card0 && this.unitOf(card0, at);
     // A layer laid over a card from elsewhere in the page (Twitch's hover preview, see overCards) goes with the card under it.
     if (!card && this.opts.overCards) {
       const over = this.cardUnder(at);
@@ -3506,13 +3685,16 @@ export class Scanner {
     // A picture of a part-covered container that lies outside its cover part (a Gmail row's star or avatar) is the site's own controls: it
     // neither takes the row's cover with it nor is covered itself.
     if (card && this.outsideCoverPart(card, at)) return;
-    const covered = !!card && this.wordsCovered(card);
+    // A row kept in view in a part-covered card (keepRows) is not under its cover: its pictures go by the usual rules (an icon stays).
+    const covered = !!card && this.wordsCovered(card) && !at.closest('[data-gsb-kept]');
     // A card covered by its own words covers everything in it, a reaction GIF too. In a card that only names the game, a
     // library GIF with a clean label is shown: its label decides.
     if (!covered && this.mediaVerdict(el) === 'clean') return;
     // A round picture is an avatar (a channel's or a person's), whatever its size: not covered on its own for being near the game. Blurred
     // alone it was a grey oval with an eye button clipped inside the round box (Twitch's channel results).
     if (!covered && this.roundPicture(el)) return;
+    // ...and so is a picture marked as a profile picture or community icon, however big its file (a moderator list's avatars).
+    if (!covered && this.avatar(el, at)) return;
     // A category's box art is official cover art (the owner's rule): never covered for being near the game.
     if (this.isBoxArt(el)) return;
     // On a page about the game a card naming it takes its result pictures, but not avatars, emoji or badge icons (read live:
@@ -3528,6 +3710,22 @@ export class Scanner {
       const byGlobal = (g: Pictures) => g.mediaNearGame !== 'off' && (g.mediaNearGame !== 'page' || page || covered) && (whole || apart || page || g.mediaNearGame === 'post');
       this.hideMedia(at, this.pictureRes(byGlobal), 'near-game');
     }
+  }
+
+  /** A profile picture or community icon (AVATAR_SELECTOR, AVATAR_FILE). */
+  private avatar(el: Element, at: Element): boolean {
+    if (el.tagName === 'VIDEO') return false;
+    if (AVATAR_FILE.test(el.getAttribute('src') ?? '')) return true;
+    // A big picture is never an avatar by where it sits (a post's picture in a link to its author, a wrapper named for its avatar).
+    if (this.bigMedia(el)) return false;
+    const box = el.closest(AVATAR_SELECTOR) ?? at.closest(AVATAR_SELECTOR);
+    // Only a small box: this picture and a name beside it, never a post or a wrapper whose class happens to say "avatar".
+    return !!box && box.querySelectorAll('img, video, faceplate-img').length <= 1 && (box.textContent?.trim().length ?? 0) <= 80;
+  }
+
+  /** The page counts as about the game for this element: not inside a promoted post, which is judged on its own words (AD_SELECTOR). */
+  private pageAt(el: Element): boolean {
+    return this.pageContext && !el.closest(AD_SELECTOR);
   }
 
   /** A category's or game's box art (the adapter's boxArt): official cover art, never covered as a picture. */
@@ -3630,10 +3828,13 @@ export class Scanner {
     if (link && names(`${this.textOf(link, 2000)} ${link.getAttribute('title') ?? ''} ${safe(link.getAttribute('href') ?? '').replace(/[/?&=#_+.-]+/g, ' ')}`)) return true;
     // A site post is read the way the post judge reads it: its own words, not the replies nested in it.
     const cards = this.opts.containers;
-    const card = cards ? this.cardFor(el) : null;
-    if (!cards || !card) return false;
+    const block = cards ? this.cardFor(el) : null;
+    if (!cards || !block) return false;
+    // In a block of units (Adapter.subCards) only the picture's own unit.
+    const card = this.unitOf(block, el);
     const text = card.matches(cards) ? this.ownText(card, cards) : this.textOf(card, POST_READ_CHARS);
     if (names(`${text} ${this.unseenText(card)}`)) return true;
+    if (card !== block) return false;
     // A slide of a carousel has no words of its own: the post around it (its caption) is read too.
     const post = this.postOf(card);
     if (post === card) return false;
@@ -3780,7 +3981,7 @@ export class Scanner {
     const cards = this.opts.containers;
     if (!this.pics.hideMediaPosts || !this.pageContext || !cards || !this.matcher.judgesPosts) return;
     const post = el.closest(cards);
-    if (!post || post.hasAttribute('data-gsb') || this.isShown(this.postOf(post))) return;
+    if (!post || post.hasAttribute('data-gsb') || this.isShown(this.postOf(post)) || !this.pageAt(post)) return;
     if (this.officialTrailer(el)) return;
     // Another thing than the page's subject (a recommended video, a trends card): its own words decide, not the page.
     if (this.opts.apart && el.closest(this.opts.apart)) return;
@@ -3799,7 +4000,7 @@ export class Scanner {
       if (all.some((m) => this.iconSized(m))) this.hide(post, none, 'media');
       else {
         for (const m of all) this.coverPicture(m, post, none);
-        if (this.opts.main && this.mc?.el === post) this.startCover();
+        if (this.opts.main && this.mc?.el === post && this.holdsPictureCover(post)) this.startCover();
       }
     } else this.hide(post, none, 'media');
   }
@@ -3840,6 +4041,9 @@ export class Scanner {
     // Already hidden, revealed by the user, or one of our own labels.
     let h = el.closest(HIDDEN);
     if (!h) return false;
+    // A row kept in view in a part-covered card (keepRows) is read: a hit there covers the whole card (hide).
+    const kept = el.closest('[data-gsb-kept]');
+    if (kept && h.contains(kept) && h.hasAttribute('data-gsb-keep')) return false;
     if (!this.flagged) return true;
     // A thread hidden or revealed "own content only": the replies under it are still read on their own.
     const threads = this.opts.threads!;
@@ -3978,21 +4182,135 @@ export class Scanner {
 
   /** The site rule's unit around `el`: a whole panel if it is in one, else its card. */
   private cardFor(el: Element): Element | null {
-    return (this.opts.panels && el.closest(this.opts.panels)) || (this.opts.containers && el.closest(this.opts.containers)) || null;
+    const panel = this.opts.panels ? el.closest(this.opts.panels) : null;
+    // A panel that holds results (Adapter.panelSplit: two or more cards with a linked title) is no panel: each result is its own card.
+    const split = !!panel && !!this.opts.panelSplit && !!this.opts.containers && panel.matches(this.opts.panelSplit)
+      && [...panel.querySelectorAll(this.opts.splitCards ?? this.opts.subCards ?? this.opts.containers)].filter((r) => r.querySelector(RESULT_TITLE)).length >= 2;
+    return (!split && panel) || (this.opts.containers && el.closest(this.opts.containers)) || null;
   }
 
   private containerFor(el: Element): Element {
     const card = this.cardFor(el);
-    if (card) return card;
+    // A card the site names only by a generic tag (a Twitch <article>) but as long as an article is not one post: the general rules below.
+    if (card && !(this.opts.cardCap && card.matches(this.opts.cardCap) && (card.textContent?.length ?? 0) > MAX_POST_CHARS)) return this.unitOf(card, el);
+    // A page's controls (a menu, a tab bar, a toolbar, a button, a label): only the piece that holds the words, never the bar around it.
+    // An article inside a nav (a story list) is a post, not a control.
+    const ctl = el.closest(CONTROL_SELECTOR);
+    const art = ctl && el.closest('article, [role="article"]');
+    if (ctl && !(art && ctl.contains(art))) {
+      // The control's own entry first (a tab's list item, not the tiny link label inside it), then a link or heading.
+      const inCtl = (p: Element | null) => (p && (p === ctl || ctl.contains(p)) ? p : null);
+      return inCtl(el.closest(CONTROL_ENTRY)) ?? inCtl(el.closest(CONTROL_PIECE)) ?? el;
+    }
     const post = el.closest(POST_SELECTOR);
-    if (post && (post.textContent?.length ?? 0) <= MAX_POST_CHARS) return post;
+    // A short article or list item wrapping several posts (units: siblings of one kind, each with words and a link or button of its own):
+    // the post around the match, not the wrapper (0.1.8 audit). Its heading still counts for it (repliesToMention).
+    if (post && (post.textContent?.length ?? 0) <= MAX_POST_CHARS) return this.unitBelow(post, el) ?? post;
     const c = el.closest(BLOCK_SELECTOR);
     if (c && c !== this.doc.body && c !== this.doc.documentElement && (!c.matches(BIG_BLOCK_SELECTOR) || (c.textContent?.length ?? 0) <= MAX_POST_CHARS)) return c;
     // Inside something long, cover only the small part around the match, never the whole article or list.
     const box = el.closest(SMALL_BOX_SELECTOR);
     // Length says nothing about pictures or page furniture: a short wrapper holding those may be the whole app.
+    // ...and one holding a text field, a choice or tabs (a reply box, a form, a tab bar) is covered with those kept usable (keepRows).
+    if (box && (box.textContent?.length ?? 0) <= MAX_POST_CHARS && (!c || c.contains(box)) && !box.matches('[role="main"]') && !box.querySelector('img, video, nav, header, footer, main')) return box;
+    return el;
+  }
+
+  /**
+   * In a card that is a block of several units of one kind (Adapter.subCards: Google's "People also ask" rows, a carousel's post cards, topic
+   * rows), the unit around `el`: the highest block below the card that has a sibling of the same kind (UNIT_TAGS, the same non-empty class
+   * list, both with some words). None in an ordinary card, which stays one unit.
+   */
+  private unitIn(card: Element, el: Element): Element | null {
+    if (!this.opts.subCards || !card.matches(this.opts.subCards)) return null;
+    return this.unitBelow(card, el, true);
+  }
+
+  /**
+   * The unit around `el` by the rules before units, controls and field boxes were told apart (0.1.8): the card, a short post, a block, a
+   * small box. The judges read it for the game's name (repliesToMention), so a smaller cover never splits a name from the game beside it.
+   */
+  private wideUnit(el: Element): Element {
+    const card = this.cardFor(el);
+    if (card && !(this.opts.cardCap && card.matches(this.opts.cardCap) && (card.textContent?.length ?? 0) > MAX_POST_CHARS)) return card;
+    const post = el.closest(POST_SELECTOR);
+    if (post && (post.textContent?.length ?? 0) <= MAX_POST_CHARS) return post;
+    const c = el.closest(BLOCK_SELECTOR);
+    if (c && c !== this.doc.body && c !== this.doc.documentElement && (!c.matches(BIG_BLOCK_SELECTOR) || (c.textContent?.length ?? 0) <= MAX_POST_CHARS)) return c;
+    const box = el.closest(SMALL_BOX_SELECTOR);
     if (box && (box.textContent?.length ?? 0) <= MAX_POST_CHARS && (!c || c.contains(box)) && !box.querySelector('img, video, nav, header, footer, main')) return box;
     return el;
+  }
+
+  /** The highest unit (isUnit) between `el` and `wrapper`, if any. */
+  private unitBelow(wrapper: Element, el: Element, strict = false): Element | null {
+    let unit: Element | null = null;
+    for (let a: Element | null = el; a && a !== wrapper; a = a.parentElement) if (this.isUnit(a, strict)) unit = a;
+    return unit;
+  }
+
+  /** The words of `wrapper` outside its units (its heading, its own lines). */
+  private outsideUnits(wrapper: Element): string {
+    let out = '';
+    const walker = this.doc.createTreeWalker(wrapper, 4 /* SHOW_TEXT */);
+    for (let n = walker.nextNode(), seen = 0; n && seen < 400 && out.length < POST_READ_CHARS; n = walker.nextNode(), seen++) {
+      const p = n.parentElement;
+      if (p && !p.classList.contains('gsb-bar') && !this.isOff(p) && !this.unitBelow(wrapper, p, true)) out += ` ${n.nodeValue ?? ''}`;
+    }
+    return out;
+  }
+
+  /** `strict`: a block of a search engine's results (subCards), whose results repeat links (sitelinks): a unit needs a picture or an expand control. */
+  private isUnit(a: Element, strict = false): boolean {
+    const cls = a.getAttribute('class')?.trim();
+    const up: Element | null = a.parentElement;
+    if (!cls || !up || !UNIT_TAGS.has(a.tagName) || !this.unitLike(a, strict)) return false;
+    for (const sib of Array.from(up.children) as Element[]) {
+      if (sib !== a && sib.tagName === a.tagName && sib.getAttribute('class')?.trim() === cls && this.unitLike(sib, strict)) return true;
+    }
+    return false;
+  }
+
+  /** Some words and a control of its own (a link, a picture, an expand button): a question row, a post card, a topic row, never a line of text. */
+  private unitLike(a: Element, strict = false): boolean {
+    if ((a.textContent?.trim().length ?? 0) < UNIT_MIN_CHARS) return false;
+    if (!strict) return a.matches(UNIT_CONTROL) || !!a.querySelector(UNIT_CONTROL);
+    // In a search engine's block: an expand control (a question or topic row), or a picture with a link out of the engine (a post card, a
+    // video row). An image pack's tiles link back to the engine and are no units (0.1.9 saved real page: one cover per tile under an overlay).
+    if (a.matches('[aria-expanded]') || a.querySelector('[aria-expanded]')) return true;
+    if (!a.querySelector('img')) return false;
+    const engine = searchEngine(this.doc.location?.hostname ?? '');
+    return [...a.querySelectorAll('a[href]')].some((l) => {
+      try {
+        const h = unwrap(new URL((l as HTMLAnchorElement).href, 'https://h.invalid/')).hostname;
+        return h !== 'h.invalid' && (!engine || searchEngine(h) !== engine) && !isEngineTool(new URL(`https://${h}/`));
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** Does this block card hold units of one kind (see unitIn)? Read again only when the number of elements in it changes. */
+  private hasUnits(card: Element): boolean {
+    if (!this.opts.subCards || !card.matches(this.opts.subCards)) return false;
+    const all = card.getElementsByTagName('*');
+    const n = all.length * 100003 + (card.textContent?.length ?? 0);
+    const seen = this.unitsSeen.get(card);
+    if (seen && seen.n === n) return seen.has;
+    let has = false;
+    for (let i = 0; i < all.length && i < 2000 && !has; i++) has = this.isUnit(all[i]!, true);
+    this.unitsSeen.set(card, { n, has });
+    return has;
+  }
+
+  private unitsSeen = new WeakMap<Element, { n: number; has: boolean }>();
+
+  /**
+   * The unit to read and cover in a site card (see unitIn): its unit in a block of units, else the card (a match outside every unit, in the
+   * block's heading or its own lines, covers the block).
+   */
+  private unitOf(card: Element, el: Element): Element {
+    return this.unitIn(card, el) ?? card;
   }
 
   private pageLevel(el: Element): boolean {
@@ -4097,7 +4415,7 @@ export class Scanner {
     if (!parts) return el;
     for (const [container, sel] of Object.entries(parts)) {
       if (!el.matches(container)) continue;
-      const part = el.querySelector(sel);
+      const part = this.ownPart(el, container, sel);
       if (!part) return el;
       if (at && !part.contains(at) && !at.contains(part)) {
         // A match found in text nobody sees (Gmail's screen-reader summary of a row repeats its sender, subject and preview) says nothing about
@@ -4113,10 +4431,27 @@ export class Scanner {
   private outsideCoverPart(card: Element, el: Element): boolean {
     for (const [container, sel] of Object.entries(this.opts.coverParts ?? {})) {
       if (!card.matches(container)) continue;
-      const part = card.querySelector(sel);
+      const part = this.ownPart(card, container, sel);
       return !!part && !part.contains(el) && !el.contains(part);
     }
     return false;
+  }
+
+  /**
+   * The cover part `sel` of `el` (a `container`) that is its own, never the part of a reply nested in it (new Reddit: a comment with no words of
+   * its own, or one whose words sit deep in its tree, would else take a reply's). Null when it has none.
+   */
+  private ownPart(el: Element, container: string, sel: string): Element | null {
+    const first = el.querySelector(sel);
+    if (!first || first.parentElement?.closest(container) === el) return first;
+    for (const p of el.querySelectorAll(sel)) if (p.parentElement?.closest(container) === el) return p;
+    return null;
+  }
+
+  /** The cover part of a comment of the site's ownThreads (see coverParts), or null. */
+  private coverPartOf(c: Element): Element | null {
+    for (const [container, sel] of Object.entries(this.opts.coverParts ?? {})) if (c.matches(container)) return this.ownPart(c, container, sel);
+    return null;
   }
 
   /** Is `n` (or an ancestor up to `root`) not drawn (display: none)? */
@@ -4157,7 +4492,9 @@ export class Scanner {
     if (!this.opts.allowStores || !(STORE_WHY.has(why) || why === 'alone')) return false;
     const loc = this.doc.location;
     if (!loc) return false;
-    const box = this.opts.containers ? el.closest(this.opts.containers) : null;
+    const block = this.opts.containers ? el.closest(this.opts.containers) : null;
+    // In a block of units (Adapter.subCards: Google's video rows) the unit is the result, not the block.
+    const box = block && this.unitOf(block, el);
     const card = box ?? el;
     let link: 'search' | 'card' | null = null;
     if (!(isStorePage(loc.hostname, loc.pathname) || this.byPublisher(card, loc.hostname))) {
@@ -4185,12 +4522,35 @@ export class Scanner {
    * Does every link of this search result go to an official host (its title, URL line and sitelinks)? Only the engine's translation and cached
    * copy are left out: a related search or a redirect the engine's address does not name counts against it.
    */
+  /**
+   * The engine's "results from this site" link for an official host: its search page, exactly one site: for an official host, and no word
+   * the page's own query does not have (a search for other words, or for another site too, is another result).
+   */
+  private sameSiteSearch(u: URL, engine: 'google' | 'bing' | 'duckduckgo'): boolean {
+    if (engine === 'duckduckgo' ? !/^\/(?:html\/?)?$/.test(u.pathname) : u.pathname !== '/search') return false;
+    if (u.searchParams.getAll('q').length !== 1) return false;
+    const words = (q: string | null) => (q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+    const sites = words(u.searchParams.get('q')).filter((w) => /^site:/.test(w));
+    if (sites.length !== 1) return false;
+    const host = sites[0]!.slice(5).replace(/^https?:\/\//, '').split('/')[0]!;
+    if (!isOfficialStoreHost(host)) return false;
+    const page = new Set(words(new URLSearchParams(this.doc.location?.search ?? '').get('q')));
+    return words(u.searchParams.get('q')).every((w) => w === sites[0] || page.has(w));
+  }
+
   private onlyStoreLinks(card: Element): boolean {
+    const engine = searchEngine(this.doc.location?.hostname ?? '');
     for (const a of card.querySelectorAll('a[href]')) {
       if (a.getAttribute('href')!.startsWith('#')) continue;
       let u: URL;
       try { u = unwrap(new URL((a as HTMLAnchorElement).href, 'https://h.invalid/')); } catch { return false; }
       if ((u.protocol !== 'https:' && u.protocol !== 'http:') || isEngineTool(u)) continue;
+      // The engine's own "more results from this site" search (0.1.7 report: Bing, DuckDuckGo): a search for an official host, not another
+      // result. Any other engine link (a redirect it cannot read, a search for other words, an image or news result) counts against the box.
+      if (engine && searchEngine(u.hostname) === engine) {
+        if (this.sameSiteSearch(u, engine)) continue;
+        return false;
+      }
       if (!isSearchStoreLink(u.href)) return false;
     }
     return true;
@@ -4232,6 +4592,13 @@ export class Scanner {
   /** Is this post by the publisher's own account (the author link of its header)? */
   private byPublisher(card: Element, host: string): boolean {
     if (!hasPublisherAccounts(host)) return false;
+    // YouTube: the video's own channel row (never a link in its description), by handle or channel id.
+    if (isYouTube(host)) {
+      const ch = card.querySelector('ytd-channel-name a[href], #channel-name a[href], #channel-info a[href], a#avatar-link[href], ytd-video-owner-renderer a[href]');
+      // Its own row: not one of a reply nested in it.
+      if (ch && this.opts.containers && ch.closest(this.opts.containers) !== card) return false;
+      return !!ch && isPublisherChannel(ch.getAttribute('href') ?? '');
+    }
     const a = card.querySelector('[data-testid="User-Name"] a[href], header a[href], h2 a[href], h3 a[href]');
     return !!a && isPublisherHandle(host, handleOf(a.getAttribute('href') ?? ''));
   }
@@ -4338,6 +4705,12 @@ export class Scanner {
     const inReplies = !!at && this.flagged && at !== el && !!this.replyUnder(el, at);
     if (this.hidden.has(el)) {
       if (inReplies && el.hasAttribute('data-gsb-own')) this.widen(el);
+      // A hit in a row kept in view (keepRows): the whole card is covered now.
+      const kept = at && el.hasAttribute('data-gsb-keep') ? at.closest('[data-gsb-kept]') : null;
+      if (kept && el.contains(kept)) {
+        this.clearKeep(el);
+        this.changes++;
+      }
       return;
     }
     // Before the cover is set: a collapsed picture has no width after.
@@ -4354,6 +4727,7 @@ export class Scanner {
     // A new cover starts unpeeked (a peek can be left over from an earlier run of the extension).
     el.removeAttribute('data-gsb-peek');
     el.setAttribute('data-gsb', this.opts.hideMode);
+    this.keepRows(el, why, at);
     this.changes++;
     // Pictures in a comment covered for its words stay covered at the same address if its text is later replaced (reply pictures).
     if (why !== 'near-game' && why !== 'media' && this.opts.threads && el.matches(this.opts.threads)) {
@@ -4454,6 +4828,15 @@ export class Scanner {
   private placeBar(el: Element, bar: HTMLElement): void {
     const row = this.inRow(el);
     if (row ? el.firstElementChild !== bar : bar.nextElementSibling !== el) row ? el.prepend(bar) : el.before(bar);
+    // A comment's own words covered as its part (coverParts: new Reddit's slot "comment") are placed by a named slot of the comment's shadow
+    // tree: its bar takes the same slot, else it lands in no slot and is never drawn (0.1.8). Only there: a title, thumbnail or picture cover
+    // keeps a bar with no slot, as before.
+    if (!row) {
+      const slot = el.getAttribute('slot');
+      const up = slot && this.opts.ownThreads ? el.parentElement?.closest(this.opts.ownThreads) : null;
+      if (up && this.coverPartOf(up) === el) bar.setAttribute('slot', slot!);
+      else bar.removeAttribute('slot');
+    }
     this.barOver.delete(bar);
     for (const p of ['position', 'left', 'top']) bar.style.removeProperty(p);
     // In a chat row the label is the row's first line and only the rest of the row is covered: it moves with the row (Kick's virtual
@@ -5058,6 +5441,7 @@ export class Scanner {
       // Held through a restart (content.ts holdCovers): the filter stays off; the hold's release gives it back if nothing covers it again.
       if (!el.hasAttribute('data-gsb-hold')) giveBackFilter(el);
       el.removeAttribute('data-gsb');
+      this.clearKeep(el);
       el.removeAttribute('data-gsb-why');
       el.removeAttribute('data-gsb-source');
       bar?.remove();

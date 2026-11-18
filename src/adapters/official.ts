@@ -95,7 +95,22 @@ export const PUBLISHER_ACCOUNTS: Record<string, readonly string[]> = {
   'x.com': ['rockstargames'],
   'twitter.com': ['rockstargames'],
   'facebook.com': ['rockstargames'],
+  // The publisher's channel and the two console makers' (0.1.7 report: an official video's thumbnail covered in search).
+  'youtube.com': ['rockstargames', 'playstation', 'xbox'],
 };
+
+/** The same YouTube channels by id (from OFFICIAL_CHANNEL_IDS), for /channel/<id> links. */
+const PUBLISHER_CHANNEL_IDS: ReadonlySet<string> = new Set(['UC6VcWc1rAoWdBCM0JxrRQ3A', 'UC-2Y8dQb0S6DtpxNgAKoJKA', 'UCjBp_7RuDBUYbd1LegWEJ8g']);
+
+/** Whether a YouTube channel address (/@handle or /channel/<id>, relative or on youtube.com) is one of the publisher accounts there. */
+export function isPublisherChannel(href: string): boolean {
+  let u: URL;
+  try { u = new URL(href, 'https://www.youtube.com/'); } catch { return false; }
+  if (!isYouTube(u.hostname.toLowerCase())) return false;
+  const m = /^\/channel\/([\w-]+)\/?/.exec(u.pathname);
+  if (m) return PUBLISHER_CHANNEL_IDS.has(m[1]!);
+  return u.pathname.startsWith('/@') && isPublisherHandle('youtube.com', handleOf(u.href));
+}
 
 /** Whether `host` is an official store host or a subdomain of one. */
 export function isOfficialStoreHost(host: string): boolean {
@@ -149,10 +164,10 @@ function bingTarget(v: string | null): string | null {
   try { return atob(v.slice(2).replace(/-/g, '+').replace(/_/g, '/')); } catch { return null; }
 }
 
-/** The target of a search engine's own redirect link (Google's "/url?q=", Bing's "/ck/a", DuckDuckGo's "uddg"), or the address itself. Exact engine hosts only. */
+/** The target of a search engine's own redirect link (Google's "/url?q=", Bing's "/ck/a", DuckDuckGo's "/l/?uddg="), or the address itself. Exact engine hosts and redirect paths only. */
 export function unwrap(u: URL): URL {
   const e = searchEngine(u.hostname);
-  const t = e === 'duckduckgo' ? u.searchParams.get('uddg') : e === 'google' && u.pathname === '/url' ? u.searchParams.get('q') : e === 'bing' && u.pathname === '/ck/a' ? bingTarget(u.searchParams.get('u')) : null;
+  const t = e === 'duckduckgo' && /^\/l\/?$/.test(u.pathname) ? u.searchParams.get('uddg') : e === 'google' && u.pathname === '/url' ? u.searchParams.get('q') : e === 'bing' && u.pathname === '/ck/a' ? bingTarget(u.searchParams.get('u')) : null;
   if (t) {
     try { return new URL(t); } catch { /* not an address */ }
   }

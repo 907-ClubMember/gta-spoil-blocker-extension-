@@ -22,6 +22,22 @@ export interface Adapter {
   apart?: string;
   /** Regions hidden as one piece when anything in them matches, even though they hold smaller cards. */
   panels?: string;
+  /**
+   * Card selector -> its direct children (matched by this selector) that stay in view when the card is covered for its words: its header row (community, author, time, menu)
+   * and action row (votes, comments, share). Everything else in the card (title, text, media, parts added later) stays covered, and a match
+   * inside a kept row covers the whole card.
+   */
+  keepParts?: Record<string, string>;
+  /** Panels (a part of `panels`) that are no panel when they hold two or more cards: they hold results, not one subject. */
+  panelSplit?: string;
+  /** The cards counted for panelSplit (default: subCards, else containers). */
+  splitCards?: string;
+  /** Cards that can be blocks of several units of one kind (siblings with the same tag and class): the unit holding a match is the card. */
+  subCards?: string;
+  /** Containers named by a bare generic tag (an <article>, a list item): such a card longer than a post is not covered whole. */
+  cardCap?: string;
+  /** Only the host itself (and www.), never a subdomain: Google search, whose subdomains are other products (docs, news, maps). */
+  exactHost?: boolean;
   /** Picture layers the player lays over its video (a poster, end-screen tiles): covered whenever the video is. */
   playerLayers?: { player: string; layers: string; play?: string };
   /** Messages are a flat list with no nesting (a chat). */
@@ -47,7 +63,7 @@ export interface Adapter {
   /**
    * The main post of a thread page, for sites whose replies are not nested but follow it as separate
    * posts. A reply to a main post that names the game counts as being about it, and hiding the main post
-   * hides the replies after it too (the reply option; not with `ownReplies`, X). With `threads` (Reddit, Instagram, Facebook): comments that sit inside the main post
+   * hides the replies after it too (the reply option; not with `ownReplies`/`ownRepliesOf`: X, Bluesky, Reddit). With `threads` (Reddit, Instagram, Facebook): comments that sit inside the main post
    * (Instagram, Facebook) are covered with it as well, see Scanner `inMain`.
    */
   main?: string;
@@ -83,8 +99,8 @@ export interface Adapter {
   ownRepliesOf?: string;
   /**
    * Comments (a part of `threads`) whose replies are judged on their own words when one is covered, whatever the reply option: each reply
-   * under a covered one reads as on a page about the game (replyContext) and gets its own cover and label (old Reddit, as X's ownReplies).
-   * The comment's own cover must leave its replies out: give it a coverParts entry.
+   * under a covered one reads as on a page about the game (replyContext) and gets its own cover and label (Reddit, as X's ownReplies).
+   * The comment's own cover must leave its replies out: give it a coverParts entry (the part may sit deep inside the comment).
    */
   ownThreads?: string;
   /** The site's own header (a community's banner, name and tabs): its words are never read, so nothing in it is covered for them. Its pictures: keepClear. */
@@ -196,6 +212,8 @@ export const ADAPTERS: Adapter[] = [
     // Read from a live video page: a reply is itself a comment thread, nested in its parent's replies area.
     threads: 'ytd-comment-thread-renderer',
     replyAreas: 'ytd-comment-replies-renderer',
+    // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
+    names: '#author-text',
     // Only the watch page's recommendations and its shorts shelf: not #secondary as a whole (the chapters and description panels
     // there are this video), and not a shorts shelf on a search or channel page (there the shorts are what the page is about).
     apart: '#related, ytd-watch-next-secondary-results-renderer, ytd-watch-flexy ytd-reel-shelf-renderer',
@@ -222,6 +240,8 @@ export const ADAPTERS: Adapter[] = [
     containers: 'yt-live-chat-text-message-renderer, yt-live-chat-paid-message-renderer, yt-live-chat-paid-sticker-renderer, yt-live-chat-membership-item-renderer',
     chat: true,
     chatLines: 'yt-live-chat-text-message-renderer, yt-live-chat-paid-message-renderer, yt-live-chat-paid-sticker-renderer, yt-live-chat-membership-item-renderer',
+    // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
+    names: '#author-name',
   },
   {
     name: 'Reddit',
@@ -233,17 +253,25 @@ export const ADAPTERS: Adapter[] = [
       '[data-testid="search-post-with-content-preview"]', '[data-testid="search-sdui-post"]', '[data-testid="search-sdui-query-suggestion-wrapper"]',
     ].join(', '),
     threads: 'shreddit-comment, .thing.comment',
+    // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
+    // Old Reddit's author link (not the flair, which is free text); new Reddit's author links in a post's or comment's header.
+    names: '.tagline a.author, [slot="commentMeta"] a[href*="/user/"], [slot="credit-bar"] a[href*="/user/"]',
     primaryPost: 'shreddit-post, #siteTable .thing.link',
-    // A post page: the post is the one main post, and its comments (they follow it in the page, not inside it) are covered with it.
+    // A post page: the post is the one main post; its comments follow it in the page, not inside it.
     main: 'shreddit-post[view-context="CommentsPage"], #siteTable .thing.link',
     threadKey: /\/comments\/(\w+)/,
-    // Old Reddit (0.1.7 report): its comments were covered with a covered post, one blur down the whole column with one label at the
-    // top. There each comment is judged on its own words, so every cover is one post or one comment with its own label.
-    ownRepliesOf: '.thing.link',
-    // ...and a covered comment never holds its replies under its one label: its cover is its own part (.entry: tagline, words, buttons),
-    // never its replies (.child), and each reply is judged on its own words as a reply of it (the reply option does not apply).
-    ownThreads: '.thing.comment',
-    coverParts: { '.thing.comment': ':scope > .entry' },
+    // Old Reddit (0.1.7 report), and new Reddit (0.1.8): the comments were covered with a covered post, one blur down the whole column with
+    // one label at the top. Each comment is judged on its own words, so every cover is one post or one comment with its own label.
+    ownRepliesOf: '.thing.link, shreddit-post',
+    // ...and a covered comment never holds its replies under its one label: its cover is its own part (old Reddit's .entry: tagline, words,
+    // buttons; new Reddit's words, slot "comment"), never its replies, and each reply is judged on its own words as a reply of it (the reply
+    // option does not apply).
+    ownThreads: '.thing.comment, shreddit-comment',
+    // (A bar takes the slot of what it covers, so it is never the part.)
+    coverParts: { '.thing.comment': ':scope > .entry', 'shreddit-comment': '[slot="comment"]:not(.gsb-bar)' },
+    // New Reddit (0.1.8 report): a post covered for its words keeps its header row and its action row (where it is a child of the post,
+    // as in the test copies; drawn inside the post's shadow root it is never covered anyway) in view.
+    keepParts: { 'shreddit-post': '[slot="credit-bar"], [data-testid="action-row"]' },
     // The "more posts" feed after the comments is not part of the thread.
     threadEnd: '#mosaic-pdp-feed',
     thumbs: '.thing a.thumbnail img, shreddit-post [slot="thumbnail"] img, shreddit-post img[slot="thumbnail"], faceplate-img[data-testid="search_post_thumbnail"]',
@@ -280,14 +308,27 @@ export const ADAPTERS: Adapter[] = [
     apart: '[data-testid="sidebarColumn"]',
     // A picture-only post: the picture is covered, not the post (the User-Name and the action row stay).
     mediaPostPictures: true,
+    // A post covered for its words keeps its author row (avatar, name, handle, time, menu) and its action bar in view (0.1.7 report); a post
+    // quoted in it is covered. The rows are kept only when they name nothing on the list (a name written as a spoiler covers them).
+    keepParts: { 'article[data-testid="tweet"]': '[data-testid="Tweet-User-Avatar"], [data-testid="User-Name"], [data-testid="caret"], div[role="group"]' },
   },
   {
     name: 'Google',
     hosts: GOOGLE_HOSTS,
     // A related search is a plain <li> in a generic wrapper (read from the live site): the wrapper holding one row is its unit.
     containers: '.MjjYud, div.g, g-card, .SoaBEf, li.sbct, [role="listitem"], .WYczDe:has(> li)',
-    // The side column about a person or game: all of it is about the same subject.
-    panels: '#rhs, .kp-wholepage',
+    // The side column about a person or game: all of it is about the same subject. The entity layout's .kp-wholepage can also hold the
+    // tabs and the whole results column (0.1.8 audit): then (the results column, or several results in it) it is no panel, and each
+    // result is its own card.
+    panels: '#rhs, .kp-wholepage:not(:has(#rso)):not(:has(#search))',
+    panelSplit: '.kp-wholepage',
+    // Only results split it, never a panel's own news cards (g-card): as at 0.1.8, also while units are off.
+    splitCards: '.MjjYud',
+    cardCap: '[role="listitem"]',
+    exactHost: true,
+    // A result block can hold several units of one kind (0.1.8 reports: "People also ask" rows with their answers, "What people are saying"
+    // post cards and topic rows): each is its own card. Found by structure (siblings of one kind), not read from a live page.
+    // subCards: '.MjjYud', -- off for 0.1.9: on a saved real page an image pack's tiles became units under the page's own overlay (0.1.10).
   },
   // The rules below were written from each site's live page structure (read-only, structure only).
   {
@@ -300,6 +341,8 @@ export const ADAPTERS: Adapter[] = [
     postMaker: '[data-testid="likeBtn"]',
     // In an opened thread the replies are links (role="link"); the main post is not.
     main: '[data-testid^="postThreadItem-by-"]:not([role="link"])',
+    // A covered main post does not cover the replies after it (0.1.8, as on X): each reply is judged on its own words, with its own label.
+    ownReplies: true,
     // The author (handle or DID, a leading @ left out) and the post's record key: a record key is unique per author only, so the key is both.
     // A handle on one side and the DID on the other only fails toward covering. (Instagram shortcodes, X status ids, Reddit post ids and
     // Steam topic ids are unique across the site: their keys are the id alone.)
@@ -333,6 +376,8 @@ export const ADAPTERS: Adapter[] = [
     hosts: ['steamcommunity.com'],
     // A topic in a discussion list, the opening post, each reply, and a review card.
     containers: '.forum_topic, .forum_op, .commentthread_comment, .apphub_Card',
+    // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
+    names: '.commentthread_author_link, .forum_op_author',
     main: '.forum_op',
     threadKey: /\/discussions\/\d+\/(\d+)/,
   },
@@ -384,6 +429,7 @@ export const ADAPTERS: Adapter[] = [
     boxArt: 'a[href^="/category/"] img, a[href^="https://kick.com/category/"] img',
     // A stream card, and each line of chat.
     containers: '[data-testid="livestream-results-card"], #chatroom-messages [data-index], article',
+    cardCap: 'article',
     // The live player (read live: #injected-channel-player holds the <video id="video-player">): never covered, muted or paused. Recorded media is not live.
     keepClear: '#injected-channel-player, #video-player',
     keepClearNot: /\/(?:video|videos|clips?)\/|[?&]clip=/,
@@ -401,11 +447,14 @@ export const ADAPTERS: Adapter[] = [
     boxArt: 'img[src*="/ttv-boxart/"], a[href*="/directory/category/"] img, a[href*="/directory/game/"] img',
     // A stream card, the title of the stream being watched, and each chat line.
     containers: 'article, [data-a-target="stream-title"], .chat-line__message, [data-a-target="chat-line-message"]',
+    cardCap: 'article',
     keepClear: '[data-a-target="video-player"]',
     // Recorded media: a broadcast, a clip, and an embedded player of one (player.twitch.tv/?video=, ?clip=, ?collection=).
     keepClearNot: /^clips\.twitch\.tv|\/videos\/|\/clip\/|[?&](?:video|clip|collection)=/,
     chat: true,
     chatLines: '.chat-line__message, [data-a-target="chat-line-message"]',
+    // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
+    names: '.chat-line__username, .chat-author__display-name',
   },
   {
     name: 'Facebook',
@@ -437,6 +486,8 @@ export const ADAPTERS: Adapter[] = [
     containers: 'li[id^="chat-messages-"], [class*="messageListItem"], [data-list-item-id^="channels___"], [class*="searchResult"]',
     chat: true,
     chatLines: 'li[id^="chat-messages-"], [class*="messageListItem"]',
+    // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
+    names: '[class^="username_"], [class*=" username_"]',
     // A channel-list entry is covered only for a strong listed name by itself (answer f02).
     strongOnly: '[data-list-item-id^="channels___"]',
     // Link previews and attachments: covered out of caution in a game server or channel, read to their end, judged as on their own site.
@@ -455,8 +506,21 @@ export const ADAPTERS: Adapter[] = [
 
 export function adapterFor(host: string, path = '/'): Adapter | null {
   // A rule for this part of the site first; then the most specific host: mail.google.com must not get the Google search adapter.
-  const hits = ADAPTERS.filter((a) => hostMatches(host, a.hosts) && (!a.path || a.path.test(path)));
+  const hits = ADAPTERS.filter((a) => hostMatches(host, a.hosts) && appHost(host, a) && (!a.path || a.path.test(path)));
   return hits.sort((a, b) => Number(!!b.path) - Number(!!a.path) || longest(b) - longest(a))[0] ?? null;
+}
+
+// A site's own pages that are not its app (a blog, help centre, docs, developer or business pages): ordinary articles, read with the
+// general rules. A site rule there would take a whole long article for one post (blog.twitch.tv: every <article> is a Twitch card).
+const NON_APP = /(?:^|\.)(?:blog|help|about|support|developers?|dev|docs|business|status|press|newsroom|careers|jobs|investors?|safety|transparency|engineering|brand|legal|policies|ads)$/;
+
+/** Is `host` the site's app, not one of its other pages? (The rule's own host entries always are: mail.google.com is Gmail's.) */
+function appHost(host: string, a: Adapter): boolean {
+  const h = host.toLowerCase().replace(/^www\./, '');
+  const entry = a.hosts.find((e) => h === e || h.endsWith('.' + e));
+  if (!entry || h === entry) return true;
+  const sub = h.slice(0, -(entry.length + 1));
+  return !a.exactHost && !NON_APP.test(sub);
 }
 
 const longest = (a: Adapter) => Math.max(...a.hosts.map((h) => h.length));
