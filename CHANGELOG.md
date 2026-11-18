@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.11
+
+### Highlights
+
+- Instagram: the tiles of a search grid keep their labels, and a post you showed stays shown when you open it.
+- Instagram: a lone comment under a post is covered on its own, not with the post.
+- Remove mode: a thin line marks each area it emptied, with a Show button for this visit.
+- Google: a match in a knowledge panel's own header or description covers the whole panel with one label; a match inside one result covers that result.
+
+### Changes
+
+- **Remove mode area line.** With Remove chosen in Settings, where every post in a grid, feed or list is removed, one thin line now sits in its place: "Spoiler Blocker removed N items here · Show". Show brings them back for this visit only; a reload removes them again. One removed post among others gets no line, and blur and Shrink are unchanged. The setting's help text says so. The line keeps up on feeds with hundreds of posts (400 posts in under a second).
+- **Google knowledge panels with several results.** When the big panel holds two or more results, a match in the panel's own header or description covers the whole panel with one label; a match inside one result covers that result. The panel is judged on its own words.
+
+### Fixes
+
+#### Instagram
+- The tiles of a search grid were all blurred with no labels; each tile now shows its label.
+- A post you showed from the grid stays shown when its post window opens, also when the window opens before the address changes.
+- A single comment under a post is judged on its own and gets its own cover; showing the post no longer shows it.
+
+#### All sites
+- A label no longer spills out of a small inline link or tab, or shows on one that is hidden.
+
 ## 0.1.10
 
 ### Highlights

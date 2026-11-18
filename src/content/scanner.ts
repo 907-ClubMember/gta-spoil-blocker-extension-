@@ -11,6 +11,8 @@ import { isGamePlace, readChatPlace } from './discord-context';
 import { ACCESSORIES, EMBED_AUTHOR, LINK_PREVIEW, SOURCE_HOST, embedSource, embedText, embedsIn, isOfficialEmbed, textHash } from './discord-embeds';
 import { adapterFor } from '../adapters';
 import { channelOf, playerState, playerStep, type PlayerState } from './live-player';
+import { TEXT } from '../text';
+import { AreaFinder, areaStep, type AreaState } from './removed-areas';
 
 /**
  * Fast chat in a game place (a Discord channel whose server, channel, topic or category names the game, or a stream or video page about
@@ -706,7 +708,20 @@ export class Scanner {
     }
     for (const e of entries) {
       const bar = this.hidden.get(e.target);
-      if (bar) bar.style.display = (e.contentRect.width === 0 && e.contentRect.height === 0) || (bar.hasAttribute('data-gsb-short') && e.contentRect.height === 0) ? 'none' : '';
+      // An inline unit around block content (Instagram's grid tile links, display:inline) is always 0 x 0 to the watcher: its laid-out
+      // box decides (0.1.10: every label of a search grid was hidden), only when it holds the whole label (as wide as its words, twice a
+      // label's height) and is shown. A text link or a small inline element keeps its label hidden, as before.
+      const t = e.target as HTMLElement;
+      const zero = e.contentRect.width === 0 && e.contentRect.height === 0;
+      const st = zero && bar && t.offsetWidth > 0 ? getComputedStyle(t) : null;
+      let boxed = false;
+      if (st && st.display === 'inline' && st.visibility !== 'hidden') {
+        // Its content's box (an inline box around a block spans the whole line): the union of its children, or its own for bare text.
+        const kids = [...t.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width || r.height);
+        const r = kids.length ? kids.reduce((a, b) => ({ left: Math.min(a.left, b.left), right: Math.max(a.right, b.right), top: Math.min(a.top, b.top), bottom: Math.max(a.bottom, b.bottom) }) as DOMRect) : t.getBoundingClientRect();
+        boxed = r.bottom - r.top >= 48 && r.right - r.left >= this.labelWidth(this.barName.get(bar!) ?? bar!.textContent ?? '', bar!.hasAttribute('data-gsb-line'));
+      }
+      if (bar) bar.style.display = boxed ? '' : (e.contentRect.width === 0 && e.contentRect.height === 0) || (bar.hasAttribute('data-gsb-short') && e.contentRect.height === 0) ? 'none' : '';
     }
     for (const n of narrow) this.narrowBar(n.bar, n.el, n.w, n.h);
     this.settleBars(entries.flatMap((e): [Element, HTMLElement][] => { const bar = this.hidden.get(e.target); return bar ? [[e.target, bar]] : []; }));
@@ -1606,7 +1621,7 @@ export class Scanner {
     const cards = this.opts.containers;
     // A site post is judged on its own words: the replies nested inside it are posts in their own right.
     // A block of units (Adapter.subCards) read for words outside its units: each unit is read on its own.
-    const own = cards && post.matches(cards) ? (this.hasUnits(post) ? this.outsideUnits(post) : this.ownText(post, cards)) : this.textOf(post, POST_READ_CHARS);
+    const own = cards && post.matches(cards) ? (this.hasUnits(post) ? this.outsideUnits(post) : this.ownText(post, cards)) : this.splitPanel(post) ? this.panelText(post, cards!) : this.textOf(post, POST_READ_CHARS);
     const text = `${own} ${this.unseenText(post)}`;
     // Keyed on a hash of the text, not its length: an edit to a text of the same length is judged again.
     const hash = textHash(text);
@@ -1769,7 +1784,8 @@ export class Scanner {
     // A comment holds the replies under it. It is judged on its own words, or two names spread over
     // a whole reply chain would count as two names in one post.
     const cards = this.opts.containers;
-    const own = cards && post.matches(cards) ? this.ownText(post, cards) : this.textOf(post, POST_READ_CHARS);
+    // A split panel (it holds results) on its own words only: its results are posts of their own.
+    const own = cards && post.matches(cards) ? this.ownText(post, cards) : cards && this.splitPanel(post) ? this.panelText(post, cards) : this.textOf(post, POST_READ_CHARS);
     const text = `${own} ${this.unseenText(post)}`;
     const known = this.about.get(post);
     if (known && known.len === text.length) return known.why;
@@ -2650,6 +2666,18 @@ export class Scanner {
       for (const x of d.querySelectorAll('[data-gsb-revealed]')) { this.revealed.delete(x); x.removeAttribute('data-gsb-revealed'); }
       this.scan(d);
     }
+    // The address now names a post the person showed (a grid tile pressed, then opened): what was covered in its dialog or page before the
+    // address changed (the site can put the dialog in first, read while the address was still the grid's) comes off, as inShownMain would
+    // have let it be (0.1.10). Its comments are still judged on their own there.
+    // Remove mode: a new address is a new visit; areas shown with their line's press may get their line again (removed-areas.ts).
+    for (const [area, rec] of this.areaLines) if (rec.state === 'shownThisVisit') this.areaLines.delete(area);
+    if (this.opts.hideMode === 'remove') for (const el of this.hidden.keys()) if (el.getAttribute('data-gsb') === 'remove') this.areaDirty.add(el);
+    if (this.areaDirty.size) this.queueAreas();
+    const k = this.opts.main ? this.threadKey() : null;
+    if (k !== null && this.revealedThreads.has(k)) {
+      this.refreshMain(this.doc);
+      for (const [el, bar] of [...this.hidden]) if (el.isConnected && this.inShownMain(el)) this.uncoverEl(el, bar);
+    }
     this.scheduleStack();
   }
 
@@ -3027,6 +3055,8 @@ export class Scanner {
     giveBackFilter(el);
     if (bar) this.probeBars.delete(bar);
     if (this.stacked.size || bar?.hasAttribute('data-gsb-stacked')) this.scheduleStack();
+    // A post of an emptied area back on the page: its line goes (removed-areas.ts).
+    if (this.areaLines.size) this.queueAreas(el);
     this.unmark(el);
     el.removeAttribute('data-gsb');
     this.clearKeep(el);
@@ -4474,9 +4504,12 @@ export class Scanner {
   private cardFor(el: Element): Element | null {
     const panel = this.opts.panels ? el.closest(this.opts.panels) : null;
     // A panel that holds results (Adapter.panelSplit: two or more cards with a linked title) is no panel: each result is its own card.
-    const split = !!panel && !!this.opts.panelSplit && !!this.opts.containers && panel.matches(this.opts.panelSplit)
-      && [...panel.querySelectorAll(this.opts.splitCards ?? this.opts.subCards ?? this.opts.containers)].filter((r) => r.querySelector(RESULT_TITLE)).length >= 2;
-    const card = (!split && panel) || (this.opts.containers && el.closest(this.opts.containers)) || null;
+    const split = !!panel && this.isSplitPanel(panel);
+    const inCard = this.opts.containers ? el.closest(this.opts.containers) : null;
+    // ...but words in its own part (its header, its description) belong to the panel: it is covered whole, its results too, under one label
+    // (0.1.11: a name in the header covered only the header, and the panel's picture and description stayed in view; keeping its results in
+    // view left two leaks, so none is kept).
+    const card = (!split && panel) || (split && !(inCard && panel!.contains(inCard)) ? panel : null) || inCard || null;
     // 0.1.8: a comment inside the main post of ownMain that is no card of its own (a dialog's list entry, two comments on Instagram's live page)
     // is its own unit, the one kept out of the post's cover (keepFor), so it is judged as a reply of the post, not as the post.
     if (card && card !== el && this.ownMain(card) && this.keepFor(card) === this.opts.commentsInside) {
@@ -4484,6 +4517,28 @@ export class Scanner {
       if (c) return c;
     }
     return card;
+  }
+
+  /** A split panel's own words: every piece of text in it outside its result cards. */
+  private panelText(panel: Element, cards: string): string {
+    let out = '';
+    const walker = this.doc.createTreeWalker(panel, 4 /* SHOW_TEXT */);
+    for (let n = walker.nextNode(), seen = 0; n && seen < 400 && out.length < 2000; n = walker.nextNode(), seen++) {
+      const p = n.parentElement;
+      const c = p?.closest(cards);
+      if (p && !(c && panel.contains(c)) && !p.classList.contains('gsb-bar') && !this.isOff(p)) out += ` ${n.nodeValue ?? ''}`;
+    }
+    return out;
+  }
+
+  private splitPanel(el: Element): boolean {
+    return !!this.opts.panels && el.matches(this.opts.panels) && this.isSplitPanel(el);
+  }
+
+  /** A panel that holds results (Adapter.panelSplit: two or more cards with a linked title): each result is its own card. */
+  private isSplitPanel(panel: Element): boolean {
+    return !!this.opts.panelSplit && !!this.opts.containers && panel.matches(this.opts.panelSplit)
+      && [...panel.querySelectorAll(this.opts.splitCards ?? this.opts.subCards ?? this.opts.containers)].filter((r) => r.querySelector(RESULT_TITLE)).length >= 2;
   }
 
   private containerFor(el: Element): Element {
@@ -5091,6 +5146,8 @@ export class Scanner {
       this.placeBar(el, bar);
     }
     this.hidden.set(el, bar);
+    // Remove mode: a whole area emptied gets its one line (removed-areas.ts), looked at once this run of covers is done.
+    if (this.opts.hideMode === 'remove') this.queueAreas(el);
     this.bigMemo.clear();
     // A cover made now may be the first in a dialog just opened: look for a dialog again.
     this.dialogAt = 0;
@@ -5804,8 +5861,75 @@ export class Scanner {
   }
 
   /** Undo everything (used before rescanning with new settings). */
+  /** Remove mode: the line standing in for each area it emptied, and its state (removed-areas.ts). Nothing of it outlives the page. */
+  private areaLines = new Map<Element, { line: HTMLElement; state: AreaState; units: Element[] }>();
+  /** Posts removed or shown again since the last look: only their areas, and the lines already there, are looked at (0.1.10 review: a look
+   * per cover over every removed post stalled a feed loading 400 posts). */
+  private areaDirty = new Set<Element>();
+  private areaTimer: ReturnType<typeof setTimeout> | null = null;
+  private areaFirst = 0;
+  private queueAreas(el?: Element): void {
+    if (el) this.areaDirty.add(el);
+    // One look once the covers settle (a feed covers in many tasks as it loads), and at the latest a second after the first call.
+    const now = Date.now();
+    if (this.areaTimer === null) this.areaFirst = now;
+    else if (now - this.areaFirst < 1000) clearTimeout(this.areaTimer);
+    else return;
+    this.areaTimer = setTimeout(() => { this.areaTimer = null; this.syncAreas(); }, 150);
+  }
+  /** One line per area whose posts are all removed, in the flow just before it; gone when a post of it shows again. */
+  private syncAreas(): void {
+    const units = this.opts.containers;
+    const dirty = [...this.areaDirty];
+    this.areaDirty.clear();
+    if (this.opts.hideMode !== 'remove' || !units) return;
+    const removed = (u: Element) => u.getAttribute('data-gsb') === 'remove' && !this.revealed.has(u);
+    const stop = (e: Element) => e === this.doc.body || e === this.doc.documentElement;
+    const find = new AreaFinder(units, removed, stop);
+    const now = new Map<Element, Element[]>();
+    const look = (el: Element) => {
+      if (!el.isConnected || !removed(el)) return;
+      for (const a of now.keys()) if (a.contains(el)) return;
+      if (!el.matches(units)) return;
+      const a = find.area(el);
+      if (a) now.set(a.area, a.units);
+    };
+    for (const el of dirty) look(el);
+    // Each line already there: looked at again through one of its posts still removed (its area may have grown, or a post come back).
+    for (const rec of this.areaLines.values()) if (rec.state === 'removed') { const one = rec.units.find((u) => u.isConnected && removed(u)); if (one) look(one); }
+    for (const [area, rec] of this.areaLines) if (rec.state === 'removed' && !now.has(area)) { rec.line.remove(); this.areaLines.delete(area); }
+    for (const [area, list] of now) {
+      const rec = this.areaLines.get(area);
+      if (rec?.state === 'shownThisVisit') continue;
+      const line = rec?.line ?? this.areaLine(area);
+      line.textContent = TEXT.removedHere(list.length);
+      if (line.nextElementSibling !== area) area.before(line);
+      this.areaLines.set(area, { line, state: 'removed', units: list });
+    }
+  }
+  private areaLine(area: Element): HTMLElement {
+    const b = this.doc.createElement('button');
+    b.type = 'button';
+    b.className = 'gsb-bar gsb-area';
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rec = this.areaLines.get(area);
+      const next = rec ? areaStep(rec.state, 'press') : null;
+      if (!rec || !next) return;
+      rec.state = next;
+      rec.line.remove();
+      // Shown for this visit only: the press is not kept anywhere, so a reload removes them again.
+      for (const u of rec.units) if (u.isConnected && this.hidden.has(u)) this.reveal(u);
+      syncReaders(this.doc);
+    });
+    return b;
+  }
+
   clear(): void {
     for (const t of this.doc.querySelectorAll('.gsb-tip')) t.remove();
+    for (const { line } of this.areaLines.values()) line.remove();
+    this.areaLines.clear();
     this.stacked.clear();
     this.probeBars.clear();
     this.dialogSets.clear();
@@ -5893,7 +6017,7 @@ export class Scanner {
       if (!d.isConnected) this.dialogSrc.delete(d);
     }
     for (const set of this.dialogSets) if (!set.size) this.dialogSets.delete(set);
-    for (const b of this.doc.querySelectorAll('.gsb-bar')) if (!mine.has(b)) b.remove();
+    for (const b of this.doc.querySelectorAll('.gsb-bar')) if (!mine.has(b) && !b.classList.contains('gsb-area')) b.remove();
     // A unit can move without a size change (something loads above it): bars lying over their units look again, and so do the
     // dialog bars (the page's own controls may have come up over one without a scroll or a resize).
     for (const [b, e] of this.probeBars) if (!b.isConnected || !e.isConnected) this.probeBars.delete(b);

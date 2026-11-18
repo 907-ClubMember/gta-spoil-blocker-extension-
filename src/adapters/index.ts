@@ -178,6 +178,10 @@ const IG_COMMENT = [
   `div:has(${IG_LINK}) ~ div:has(${IG_LINK}):has(~ div ${IG_LINK})`,
   `div:has(${IG_LINK}) ~ div:has(${IG_LINK}) ~ div:has(${IG_LINK})`,
 ].join(', ');
+// A comment of a post dialog's list even when it is the only one (read from a saved post dialog: article > … > ul > div[role=button] > li,
+// the li holding the comment's /c/ link; the caption entry has none). IG_COMMENT needs a run of them, so a lone comment was no card: its
+// words counted as the post's, and a press on the post's tile showed it with the post (0.1.10).
+const IG_LONE = `article ul > div:has(> li ${IG_LINK})`;
 // An opened post as the live site builds it (read from post pages, at /p/<id>/ and /<user>/p/<id>/): no article and no list. The main
 // holds one wrapper: the post (its pictures and the comments side; the comments are plain blocks each with its comment link), a line, and
 // a grid of the author's other posts. The post is the wrapper's block with the comment links, so the grid is never covered with it.
@@ -420,7 +424,7 @@ export const ADAPTERS: Adapter[] = [
     hosts: ['instagram.com'],
     // A post in the feed, a tile on a search or profile grid, each comment on an opened post, and each
     // reply in the list under a comment. Class names are machine-made and change, so the rule goes by structure.
-    containers: `article, a[href*="/p/"]:not([href*="/c/"]), a[href*="/reel/"], main ul > li, main ul > div, ${IG_COMMENT}`,
+    containers: `article, a[href*="/p/"]:not([href*="/c/"]), a[href*="/reel/"], main ul > li, main ul > div, ${IG_COMMENT}, ${IG_LONE}`,
     // The live post page's whole post (IG_POST) is a card too, its caption next to its picture: on a post's address only, never on a feed.
     threadCards: IG_POST,
     // Where that post box sits (IG_POST without its conditions): the one block tried when a node lands in a post with no comment yet.
@@ -428,7 +432,7 @@ export const ADAPTERS: Adapter[] = [
     // A post's pictures sit in its own buttons and links (read live): a double-click there likes the post. A covered picture takes the
     // click itself; only its bar shows it.
     swallowClicks: true,
-    threads: IG_COMMENT,
+    threads: `${IG_COMMENT}, ${IG_LONE}`,
     replyAreas: 'main ul',
     // An opened post (its own page, or a dialog over the feed or a profile, at the post's address): the one post article. Its comments sit
     // inside it (from 0.1.8 judged on their own words: ownReplies below). The feed and profile pages are not thread pages; a feed behind a post dialog is not the main post.

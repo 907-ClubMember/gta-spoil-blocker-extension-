@@ -39,6 +39,8 @@ export const TEXT = {
   allowSites: { ...words.text.allowSites, examples: words.text.allowSites.examples as unknown as Examples },
   blockSites: { ...words.text.blockSites, examples: words.text.blockSites.examples as unknown as Examples },
   siteCoveredBy: (label: string) => fill(words.text.siteCoveredBy, { label }),
+  /** Remove mode's one line where it emptied a whole area (content/removed-areas.ts). */
+  removedHere: (count: number) => fill(words.text.removedHere, { count }),
   hidden: (n: number) => fill(n === 0 ? words.text.hidden.none : n === 1 ? words.text.hidden.one : words.text.hidden.many, { count: n }),
   safeWhy: (kind: 'site' | 'prefix' | 'page', label: string) => fill(words.text.safeWhy[kind], { label }),
   strictHere: (label: string) => fill(words.text.strictHere, { label }),

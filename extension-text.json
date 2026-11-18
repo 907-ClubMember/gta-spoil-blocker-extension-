@@ -85,7 +85,7 @@
     },
     "remove": {
       "name": "Remove it",
-      "help": "It just disappears, with nothing left behind and no way to show it."
+      "help": "Removes covered items completely. Where a whole area is removed, one thin line says how many, with a Show button for this visit."
     }
   },
   "kinds": {
@@ -478,6 +478,12 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_11": [
+      "Instagram: the tiles of a search grid keep their labels, and a post you showed stays shown when you open it.",
+      "Instagram: a lone comment under a post is covered on its own, not with the post.",
+      "Remove mode: a thin line marks each area it emptied, with a Show button for this visit.",
+      "Google: a match in a knowledge panel's own header or description covers the whole panel with one label; a match inside one result covers that result."
     ],
     "v0_1_10": [
       "Settings: back up and restore your settings, and a copy from GitHub now keeps its settings when you update it.",
@@ -968,6 +974,7 @@
       "one": "1 item hidden on this page.",
       "many": "{count} items hidden on this page."
     },
+    "removedHere": "Spoiler Blocker removed {count} items here · Show",
     "revealAll": "Show everything hidden on this page",
     "safeWhy": {
       "site": "Safe: all of {label}",
