@@ -1954,11 +1954,33 @@ export class Scanner {
   /** The thread whose main post is covered, where each reply is judged on its own (ownReplies): see replyContext. */
   private ctxKey: string | null = null;
 
+  /**
+   * Covers made for something else than the game: a spoiler account, or only the person's own words. They open no reply context: the
+   * replies under them are judged as anywhere else (audit F1). See forGame.
+   */
+  private notGame = new WeakSet<Element>();
+
+  /**
+   * Does the cover on `el` count as a cover for the game (it opens the reply context)? Any cover but one made for an account or the
+   * person's own words; one of those counts too when the element's own words match the list by themselves (a name, a phrase with the
+   * game) or just mention the game, as in 0.1.7: a later match in it does not change the cover's reason.
+   */
+  private forGame(el: Element): boolean {
+    if (!this.notGame.has(el)) return true;
+    // A comment's own part (.entry) is read as its comment, without the replies in it.
+    const cards = this.opts.containers;
+    const card = cards ? el.closest(cards) : null;
+    const text = card && cards ? this.ownText(card, cards) : this.textOf(el, POST_READ_CHARS);
+    return this.matcher.hasContext(text) || !!this.matcher.match(text)?.categories.length;
+  }
+
   /** The main post is covered (ownReplies): the replies after it that were read already are read again, as on a page about the game. */
   private startReplyContext(): void {
     const key = this.threadKey();
     const cards = this.opts.containers;
     if (key === null || this.ctxKey === key || !cards || !this.anchor?.cell) return;
+    const m = this.mc?.el;
+    if (m && this.hidden.has(m) && !this.forGame(m)) return;
     this.ensureAnchor();
     this.ctxKey = key;
     for (let c = this.anchor!.cell.nextElementSibling; c && this.inRun(c); c = c.nextElementSibling) {
@@ -1978,7 +2000,8 @@ export class Scanner {
    * (old Reddit): the covered comment is its thread.
    */
   private replyContext(post: Element): boolean {
-    if (this.ctxKey !== null && this.ownRepliesHere() && this.ctxKey === this.threadKey() && post !== this.mc?.el && this.inRun(post)) return true;
+    // Not once the person showed the main post (audit F2): its replies are then judged as anywhere else.
+    if (this.ctxKey !== null && this.ownRepliesHere() && this.ctxKey === this.threadKey() && !this.revealedThreads.has(this.ctxKey) && post !== this.mc?.el && this.inRun(post)) return true;
     return this.underOwnThread(post);
   }
 
@@ -2005,7 +2028,7 @@ export class Scanner {
   private underOwnThread(post: Element): boolean {
     const sel = this.opts.ownThreads;
     if (!sel || !post.matches(sel)) return false;
-    const on = (e: Element) => this.hidden.has(e) && !this.revealed.has(e);
+    const on = (e: Element) => this.hidden.has(e) && !this.revealed.has(e) && this.forGame(e);
     for (let up = post.parentElement?.closest(sel); up; up = up.parentElement?.closest(sel)) if (on(up) || [...up.children].some(on)) return true;
     return false;
   }
@@ -4339,6 +4362,8 @@ export class Scanner {
     // Which rule hid it. A rule name only, never the matched words.
     el.setAttribute('data-gsb-why', why);
     this.whyOf.set(el, why);
+    if (why === 'account' || (res.custom && !res.categories.length)) this.notGame.add(el);
+    else this.notGame.delete(el);
     // The setting that made it, when the person changed one (a code only).
     const source = this.opts.coverSource ? pickSource(why, res, this.opts.coverSource, why === 'account' ? this.accountOf(at) : null) : null;
     if (source) {

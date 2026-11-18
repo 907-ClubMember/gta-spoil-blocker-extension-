@@ -722,10 +722,13 @@ export function isSuspended(s: Settings, now: number): boolean {
   return false;
 }
 
-/** The named presets set the how-it-looks fields. Anything else the user changed stays. */
+/**
+ * The named presets set the how-it-looks fields. Anything else the user changed stays. Every preset sets the same keys, so
+ * switching from one to another leaves nothing of the one before (0.1.8: Casual and Careful now set the GIF choices too).
+ */
 export const PRESETS: Record<Exclude<Preset, 'custom'>, Partial<Settings>> = {
-  casual: { strictness: 'light', blur: 'light', hideMode: 'blur', showReason: true, mediaNearGame: 'page', hideMediaPosts: false },
-  careful: { strictness: 'medium', blur: 'medium', hideMode: 'blur', showReason: true, mediaNearGame: 'post', hideMediaPosts: true },
+  casual: { strictness: 'light', blur: 'light', hideMode: 'blur', showReason: true, mediaNearGame: 'page', reactionGifs: 'label', ...REPLY_PICTURE_DEFAULTS, hideMediaPosts: false },
+  careful: { strictness: 'medium', blur: 'medium', hideMode: 'blur', showReason: true, mediaNearGame: 'post', reactionGifs: 'label', ...REPLY_PICTURE_DEFAULTS, hideMediaPosts: true },
   blackout: { strictness: 'strict', blur: 'solid', hideMode: 'remove', showReason: false, mediaNearGame: 'post', reactionGifs: 'picture', replyGifs: 'cover', replyPhotos: 'cover', hideMediaPosts: true },
 };
 
@@ -749,6 +752,9 @@ export function resetChoices(s: Settings): Settings {
 export function clearLists(s: Settings): Settings {
   return normalizeSettings({ ...structuredClone(s), ...listsOf(DEFAULT_SETTINGS) });
 }
+
+/** Every key some preset sets: changing one of these by hand turns a named preset into "Custom". */
+export const PRESET_KEYS = [...new Set(Object.values(PRESETS).flatMap((p) => Object.keys(p)))] as (keyof Settings)[];
 
 export function applyPreset(s: Settings, name: Exclude<Preset, 'custom'>): Settings {
   return normalizeSettings({ ...s, ...PRESETS[name], preset: name });

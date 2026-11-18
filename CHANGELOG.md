@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.8
+
+### Highlights
+
+- Settings: switching from Total blackout to Careful or Casual now really goes back to that preset's GIF and picture choices.
+- The Blackout card now says that Blackout covers no words while "Cover pictures only, never words" is on.
+- Site settings no longer offer a comments switch on sites where it does nothing: X, Facebook, Instagram, Bluesky, Threads, Twitch, Kick and Discord.
+- Replies under a post or comment hidden only for a blocked account or one of your own words are no longer hidden as replies to a post about GTA 6.
+- After you show a hidden post, replies that load later are judged on their own words.
+
+### Changes
+
+- **Presets.** Casual and Careful now set the GIF and reply picture choices too, so switching to them from Total blackout leaves nothing of Total blackout behind. Changing any of these choices by hand makes the preset Custom.
+- **Blackout.** The card says that Blackout covers no words while "Cover pictures only, never words" is on.
+- **Site settings.** The comments switch is left out of the cards for X, Facebook, Instagram, Bluesky, Threads, Twitch, Kick and Discord, where it does nothing. Reddit, YouTube, Steam and other sites keep it, and group cards keep every switch. Saved values load unchanged.
+
+### Fixes
+
+#### Reddit and X
+- Replies under a post or comment hidden only for a blocked account or one of your own words are no longer hidden as replies to a post about GTA 6. If the hidden post's words name the game, its replies are still treated as replies to it.
+- After you show a hidden post, replies that load later are judged on their own words.
+
 ## 0.1.7
 
 ### Highlights

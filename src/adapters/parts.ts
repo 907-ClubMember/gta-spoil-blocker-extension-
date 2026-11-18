@@ -34,6 +34,14 @@ const SITE: { hosts: string[]; parts: Partial<Record<PagePart, string>> }[] = [
   { hosts: ['x.com', 'twitter.com'], parts: { sidebar: '[data-testid="sidebarColumn"]', titles: '[data-testid="trend"]' } },
 ];
 
+/** Sites whose comments sit in markup no selector above finds: a comments switch would do nothing there, so it is not offered. */
+const NO_COMMENT_PARTS = ['x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'bsky.app', 'threads.com', 'threads.net', 'twitch.tv', 'kick.com', 'discord.com'];
+
+/** The page-part switches a site's card offers: all of them, less comments where that switch would do nothing. */
+export function sitePartsOffered(host: string): PagePart[] {
+  return PAGE_PARTS.filter((p) => p !== 'comments' || !hostMatches(host, NO_COMMENT_PARTS));
+}
+
 /** Pages whose address says they are a search. A bare number in `s=` is a share tag (X's `?s=20`), not a search. */
 export function isSearchPage(pathname: string, search: string): boolean {
   return /\/(search|results|find)\b/i.test(pathname) || /[?&](q|query|search_query)=/i.test(search) || /[?&]s=(?!\d*(&|$))/i.test(search);

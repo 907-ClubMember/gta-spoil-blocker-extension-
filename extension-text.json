@@ -211,7 +211,8 @@
   },
   "blackout": {
     "name": "Blackout: hide everything that mentions GTA 6",
-    "help": "An override on top of your other settings: while it's on, anything that mentions GTA 6 is covered wherever hiding is on, even if it gives nothing away. Use it if you want to see nothing about the game until you've played. Pages you've marked safe in My lists are left alone.",
+    "help": "An override on top of your other settings: while it's on, anything that mentions GTA 6 is covered wherever hiding is on, even if it gives nothing away. Use it if you want to see nothing about the game until you've played. Pages you've marked safe in My lists are left alone. With \"Cover pictures only, never words\" on, it covers pictures only, not words.",
+    "thumbsOnlyNote": "\"Cover pictures only, never words\" is on, so the blackout covers pictures but no words. Turn that off to have the blackout cover words too.",
     "options": {
       "0": "Off",
       "3": "For 3 days",
@@ -312,7 +313,7 @@
     },
     "comments": {
       "name": "Comments and replies",
-      "help": "The comment sections under posts and videos."
+      "help": "The comment sections under posts and videos. It does nothing on X, Facebook, Instagram, Bluesky, Threads, Twitch, Kick or Discord, so their own cards leave it out."
     },
     "search": {
       "name": "Search results pages",
@@ -477,6 +478,13 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_8": [
+      "Settings: switching from Total blackout to Careful or Casual now really goes back to that preset's GIF and picture choices.",
+      "The Blackout card now says that Blackout covers no words while \"Cover pictures only, never words\" is on.",
+      "Site settings no longer offer a comments switch on sites where it does nothing: X, Facebook, Instagram, Bluesky, Threads, Twitch, Kick and Discord.",
+      "Replies under a post or comment hidden only for a blocked account or one of your own words are no longer hidden as replies to a post about GTA 6.",
+      "After you show a hidden post, replies that load later are judged on their own words."
     ],
     "v0_1_7": [
       "Reaction and reply GIFs are judged by their label again by default, and GIFs about GTA 6 stay covered. \"Cover them\" in Settings still covers all GIFs.",
@@ -710,6 +718,7 @@
       "changed": "{count} changed",
       "hiddenTitle": "What is hidden",
       "thumbsNote": "words are not hidden",
+      "thumbsBlackoutNote": "words are not hidden, not even by the blackout",
       "mediaPageNote": "Pictures in mixed feeds (like Reddit home) are not covered.",
       "differTitle": "Differs from default",
       "differNone": "Nothing: every setting is as it came.",

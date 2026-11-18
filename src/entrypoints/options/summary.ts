@@ -152,6 +152,9 @@ const HIDDEN_KEYS = ['protect', 'hideImages', 'hideMediaPosts', 'mediaNearGame',
 const when = (t: string | number) => new Date(t).toLocaleString();
 const many = (n: number, words: { one: string; many: string; none?: string }) => (n === 0 && words.none ? words.none : n === 1 ? words.one : fill(words.many, { count: n }));
 
+/** Pictures only holds during the blackout too, so the Blackout card says it covers no words then. */
+export const blackoutThumbsNote = (s: Settings): string | undefined => (s.blackoutDays && s.thumbsOnly ? BLACKOUT_TEXT.thumbsOnlyNote : undefined);
+
 /** Everything the panel says, from the settings, the time now and the release day from the spoiler list (for the blackout). */
 export function buildSummary(s: Settings, now: number, release?: string): Summary {
   const status = blockingStatus(s, now);
@@ -174,7 +177,7 @@ export function buildSummary(s: Settings, now: number, release?: string): Summar
   const noEffect = mediaWhy ? [{ key: 'hideMediaPosts' as const, text: NO_EFFECT_WORDS[mediaWhy] }] : [];
   const hidden: Line[] = HIDDEN_KEYS.map((k) => {
     // Pictures on game pages only: say plainly that mixed feeds stay as they are.
-    const note = k === 'hideMediaPosts' ? noEffect[0]?.text : k === 'thumbsOnly' && s.thumbsOnly ? S.thumbsNote : k === 'mediaNearGame' && s.mediaNearGame === 'page' ? S.mediaPageNote : undefined;
+    const note = k === 'hideMediaPosts' ? noEffect[0]?.text : k === 'thumbsOnly' && s.thumbsOnly ? (s.blackoutDays ? S.thumbsBlackoutNote : S.thumbsNote) : k === 'mediaNearGame' && s.mediaNearGame === 'page' ? S.mediaPageNote : undefined;
     // No "(default)" here: "Differs from default" says what changed.
     return { key: k, text: `${S.labels[k]}: ${valueName(k, s[k], false)}`, ...(note ? { note } : {}) };
   });

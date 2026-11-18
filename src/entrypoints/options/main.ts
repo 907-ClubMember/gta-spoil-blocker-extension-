@@ -4,7 +4,7 @@ import { choiceRow, el, preview, rememberFocus, restoreFocus } from '../../ui/do
 import { DONATE_URL, MAKER_URL, WIKI_URL } from '../../donate';
 import { installKindOf, showUpdateSteps } from '../../versions';
 import { BLUR_TEXT, CATEGORY_MODE_TEXT, CATEGORY_TEXT, HIDE_MODE_TEXT, KIND_GROUP_TEXT, KIND_MODE_TEXT, KIND_TEXT, MEDIA_NEAR_TEXT, REACTION_GIF_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, ORDINARY_TEXT, PART_TEXT, RARE_TEXT, PRESET_TEXT, PROTECT_TEXT, REPLIES_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT, BLACKOUT_TEXT } from '../../text';
-import { DEFAULT_SETTINGS, PAGE_PARTS, clearLists, resetChoices, WORDS_ONLY_TOPICS, PRESETS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, samePattern, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, PAGE_PARTS, clearLists, resetChoices, WORDS_ONLY_TOPICS, PRESET_KEYS, applyPreset, blockingStatus, loadSettings, PROTECTS, normalizeHost, normalizeSettings, coveringEntry, parsePattern, patternChoices, patternLabel, samePattern, saveSettings, timeOf, SITE_GROUPS, type CategoryMode, type Settings, type SiteOverride, type SitePattern } from '../../settings';
 import { activeList, describeResult, loadMeta } from '../../list/store';
 import { CATEGORIES, KINDS, KIND_GROUP, KIND_GROUPS } from '../../types';
 import { countByCategory } from '../../list';
@@ -15,7 +15,8 @@ import { NEVER_HIDE_REFUSED } from '../../never-hide';
 import { SITE_OFF, attachExamples, noEffectBecause } from './examples';
 import { isSettingAnchor } from '../../reason-settings';
 import { armedButton } from './two-press';
-import { KEY_FOLD, PAGE_ANCHOR_TAB, drawSummary, scheduleRedraw, type DiffKey, type PageAnchor } from './summary';
+import { sitePartsOffered } from '../../adapters/parts';
+import { KEY_FOLD, PAGE_ANCHOR_TAB, blackoutThumbsNote, drawSummary, scheduleRedraw, type DiffKey, type PageAnchor } from './summary';
 
 const app = document.getElementById('app')!;
 let s: Settings;
@@ -99,7 +100,7 @@ try {
 }
 
 /** A change to how careful it is or how hiding looks turns a named preset into "Custom"; anything else leaves it alone. */
-const LOOK_FIELDS = Object.keys(PRESETS.careful);
+const LOOK_FIELDS: string[] = PRESET_KEYS;
 async function commit(patch: Partial<Settings>) {
   const touchesLook = Object.keys(patch).some((k) => LOOK_FIELDS.includes(k));
   resetDone = '';
@@ -534,7 +535,8 @@ async function render() {
       ...(group ? [] : [el('option', { value: 'off', selected: offNow === 'off' }, TEXT.sitePictures.siteOffNo)]));
     off.dataset.example = 'siteOff';
     off.addEventListener('change', () => set({ off: off.value === 'on' ? true : off.value === 'off' ? false : undefined }));
-    const parts = PAGE_PARTS.map((p) => {
+    // A site card leaves out a switch that does nothing on that site (a group keeps them all). A saved value stays as it is.
+    const parts = (group ? PAGE_PARTS : sitePartsOffered(key)).map((p) => {
       const c = el('input', { type: 'checkbox', checked: o.parts?.[p] ?? s.parts[p] });
       c.addEventListener('change', () => set({ parts: { ...o.parts, [p]: c.checked } }));
       return el('label', { class: 'chip' }, c, ` ${PART_TEXT[p].name}`);
@@ -697,7 +699,7 @@ async function render() {
       el('section', { class: 'card support' }, el('div', {}, el('h2', {}, TEXT.donate.name), el('p', { class: 'help' }, TEXT.donate.help)), el('div', { class: 'support-links' }, link(DONATE_URL, TEXT.donate.link), link(WIKI_URL, TEXT.donate.site), link(MAKER_URL, TEXT.donate.own))),
       section(TEXT.looksTitle, TEXT.looksHelp, looks(TEXT.looksTitle, presetCards), ...(s.preset === 'custom' ? [el('p', { class: 'help' }, `${PRESET_TEXT.custom.name}: ${PRESET_TEXT.custom.help}`)] : []),
         fold(TEXT.looksOwn, false, looks(TEXT.looksOwn, hideCards))),
-      section(BLACKOUT_TEXT.name, BLACKOUT_TEXT.help, blackout, ...(s.blackoutDays ? [el('div', { class: 'blackout-start' }, startPick), ...(picking ? [el('div', { class: 'times' }, timeBox(BLACKOUT_TEXT.start, s.blackoutFrom, (v) => ({ blackoutFrom: v })), el('label', {}, BLACKOUT_TEXT.zone, zonePick))] : []), el('p', { class: 'help' }, BLACKOUT_TEXT.startHelp)] : [])),
+      section(BLACKOUT_TEXT.name, BLACKOUT_TEXT.help, blackout, ...(blackoutThumbsNote(s) ? [el('p', { class: 'help' }, blackoutThumbsNote(s)!)] : []), ...(s.blackoutDays ? [el('div', { class: 'blackout-start' }, startPick), ...(picking ? [el('div', { class: 'times' }, timeBox(BLACKOUT_TEXT.start, s.blackoutFrom, (v) => ({ blackoutFrom: v })), el('label', {}, BLACKOUT_TEXT.zone, zonePick))] : []), el('p', { class: 'help' }, BLACKOUT_TEXT.startHelp)] : [])),
       section(TEXT.resetName, TEXT.resetHelp, el('div', { class: 'reset-row' }, resetBtn), el('p', { class: 'help' }, TEXT.clearListsHelp), el('div', { class: 'reset-row' }, clearBtn),
         el('p', { class: 'msg reset-msg', role: 'status' }, resetDone === 'reset' ? TEXT.resetDone : resetDone === 'cleared' ? TEXT.clearListsDone : '')),
     ),
