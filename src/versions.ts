@@ -1,22 +1,24 @@
-// Version numbers as the extension shows them: "x.y.z", whole numbers only. Pure helpers (no browser calls), tested on their own.
+// Version numbers as the extension shows them: "x.y.z" or "x.y.z.w" (Chrome allows a fourth part), whole numbers only. Pure
+// helpers (no browser calls), tested on their own.
 
-/** "1.2.3" as three numbers; null for anything that is not exactly that (a longer or shorter one, a suffix, letters). */
-export function parseVersion(v: unknown): [number, number, number] | null {
+/** "1.2.3" or "1.2.3.4" as numbers; null for anything else (a longer or shorter one, a suffix, letters). */
+export function parseVersion(v: unknown): number[] | null {
   if (typeof v !== 'string') return null;
-  const m = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/.exec(v);
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  const m = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})(?:\.(\d{1,4}))?$/.exec(v);
+  return m ? m.slice(1).filter((p) => p !== undefined).map(Number) : null;
 }
 
-/** Is `latest` a higher version than `current`? False when either is not a plain x.y.z (nothing is said then). */
+/** Is `latest` a higher version than `current`? A missing fourth part counts as 0, so 0.1.6 < 0.1.6.1 < 0.1.7. False when either
+ *  is not a plain version (nothing is said then). */
 export function isNewerVersion(latest: unknown, current: unknown): boolean {
   const a = parseVersion(latest);
   const b = parseVersion(current);
   if (!a || !b) return false;
-  for (let i = 0; i < 3; i++) if (a[i]! !== b[i]!) return a[i]! > b[i]!;
+  for (let i = 0; i < 4; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
   return false;
 }
 
-/** The key of a version in extension-text.json's releaseNotes: 0.1.3 -> v0_1_3. */
+/** The key of a version in extension-text.json's releaseNotes: 0.1.3 -> v0_1_3, 1.2.3.4 -> v1_2_3_4. */
 export const releaseKey = (version: string): string => `v${version.replace(/\./g, '_')}`;
 
 /** How this copy was installed: a folder loaded by hand ("development"), or from the store (everything else). */

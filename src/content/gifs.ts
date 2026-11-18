@@ -148,6 +148,20 @@ const ANIMATED = /\.(?:gif|gifv|webp|mp4|webm)$/i;
 const isRedditPreview = (h: string) => h === 'external-preview.redd.it';
 const isReddit = (h: string) => h === 'reddit.com' || h.endsWith('.reddit.com');
 
+/**
+ * New Reddit's Giphy reply: Reddit marks the comment content-type="giphy" and shows the GIF only from its own preview host, with
+ * no Giphy link. On Reddit only; the attribute is Reddit's, not the writer's. The nearest comment must be the Giphy one (a reply
+ * under it is not), and every address of the media must be on Reddit's preview host.
+ */
+export function inRedditGiphy(el: Element): boolean {
+  if (!isReddit((el.ownerDocument.location?.hostname ?? '').toLowerCase())) return false;
+  if (el.closest('shreddit-comment')?.getAttribute('content-type') !== 'giphy') return false;
+  const urls = mediaUrls(el, false);
+  return urls.length > 0 && urls.every((u) => {
+    try { return isRedditPreview(new URL(u, el.ownerDocument.baseURI).hostname.toLowerCase()); } catch { return false; }
+  });
+}
+
 type MediaAddr = Addr & { anim?: boolean };
 
 /**

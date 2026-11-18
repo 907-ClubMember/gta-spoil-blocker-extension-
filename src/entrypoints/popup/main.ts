@@ -2,7 +2,7 @@ import '../../ui/style.css';
 import { el, restoreFocus, rememberFocus, twoPress } from '../../ui/dom';
 import { DONATE_URL, MAKER_URL, RELEASES_URL } from '../../donate';
 import { HIDDEN_GROUP_TEXT, PROTECT_TEXT, TEXT } from '../../text';
-import { DEFAULT_SETTINGS, addPattern, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, pagePattern, patternChoices, patternLabel, removePattern, samePattern, saveSettings, shortLabel, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
+import { DEFAULT_SETTINGS, addPattern, blackoutLine, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, pagePattern, patternChoices, patternLabel, removePattern, samePattern, saveSettings, shortLabel, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
 import { cleanTally, describeTally, type HiddenTally } from '../../hidden';
 import { builtinList, chooseList, loadMeta, savedList } from '../../list/store';
 import { staleNotice } from '../../list/stale';
@@ -74,6 +74,9 @@ async function render() {
   if (chat) body.push(el('p', { class: 'help', id: 'chat-note' }, chat));
   // A list that has not updated for a day, or only the built-in one: say so, so a quiet failure is not mistaken for full cover.
   const saved = await savedList();
+  // The blackout, while it covers here: "Blackout is ON, until ...".
+  const blackout = on ? blackoutLine(s, chooseList(saved, builtinList()).list.release, now) : undefined;
+  if (blackout) body.push(el('p', { class: 'help blackout-line', role: 'status' }, blackout));
   const stale = staleNotice(await loadMeta(), chooseList(saved, builtinList()).savedInUse, now);
   if (stale) body.push(el('p', { class: 'warn stale', role: 'status' }, stale.kind === 'builtin' ? TEXT.listStale.builtin : stale.since ? TEXT.listStaleSince(shortTime(stale.since)) : TEXT.listStale.never));
 

@@ -169,7 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hideImages: true,
   hideMediaPosts: true,
   mediaNearGame: 'post',
-  reactionGifs: 'picture',
+  reactionGifs: 'label',
   replyGifs: REPLY_PICTURE_DEFAULTS.replyGifs,
   replyPhotos: REPLY_PICTURE_DEFAULTS.replyPhotos,
   hideReplies: true,
@@ -665,6 +665,23 @@ export function blackoutOn(s: BlackoutSettings, release: string | undefined, now
   return now >= start && (s.blackoutDays < 0 || now < start + s.blackoutDays * 86_400_000);
 }
 
+/** When the blackout ends; undefined for "Until I turn it off", when it is off, or when no start is known. */
+export function blackoutEnd(s: BlackoutSettings, release: string | undefined): number | undefined {
+  const start = blackoutStart(s, release);
+  return s.blackoutDays > 0 && start !== undefined ? start + s.blackoutDays * 86_400_000 : undefined;
+}
+
+/**
+ * The popup's and the Current settings panel's line while the blackout covers pages: "Blackout is ON, until you turn it off",
+ * or until its end. Undefined while it does not cover (off, not started, ended, or hiding is off or paused).
+ */
+export function blackoutLine(s: Settings, release: string | undefined, now: number, when: (t: number) => string = shortDate): string | undefined {
+  if (!blockingStatus(s, now).on || !blackoutOn(s, release, now)) return undefined;
+  const end = blackoutEnd(s, release);
+  return end === undefined ? TEXT.summary.blackoutOn : TEXT.summary.blackoutOnUntil.replace('{end}', when(end));
+}
+const shortDate = (t: number) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
 /** When the blackout next starts or ends, so an open tab can look again then; undefined when it will not change. */
 export function blackoutNextChange(s: BlackoutSettings, release: string | undefined, now: number): number | undefined {
   const start = blackoutStart(s, release);
@@ -974,7 +991,8 @@ export function urlMatches(url: string, patterns: SitePattern[]): boolean {
       return underHost && (path === pp || path.startsWith(pp + '/'));
     }
     const e = pageParts(p.path);
-    return a.host === p.host && (path || '/') === e.path.toLowerCase() && a.query === e.query && a.hash === e.hash;
+    // An entry with no route (saved before 0.1.6, or on the app's start view) covers every route under it; one with a route only that route.
+    return a.host === p.host && (path || '/') === e.path.toLowerCase() && a.query === e.query && (!e.hash || a.hash === e.hash);
   });
 }
 
@@ -989,7 +1007,11 @@ export function coveringEntry(patterns: SitePattern[], p: SitePattern): SitePatt
       const pp = p.path.toLowerCase().split(/[?#]/)[0]!.replace(/\/$/, '');
       return pp === vp || pp.startsWith(vp + '/');
     }
-    return p.kind === 'page' && p.host === v.host && pathKey(p.path) === pathKey(v.path);
+    if (p.kind !== 'page' || p.host !== v.host) return false;
+    if (pathKey(p.path) === pathKey(v.path)) return true;
+    // A page entry with no route covers the same page with a route.
+    const a = pageParts(p.path), b = pageParts(v.path);
+    return !b.hash && !!a.hash && a.path.toLowerCase() === b.path.toLowerCase() && a.query === b.query;
   });
 }
 
@@ -1010,25 +1032,38 @@ export async function saveSettings(s: Settings): Promise<void> {
 const OLD_GIF_DEFAULTS = { reactionGifs: 'label', replyGifs: 'show' } as const;
 /** Set once the move below is done (or on a new install, which starts with the new defaults). */
 const GIF_DEFAULTS_DONE = 'gifDefaults016';
+/** The 0.1.6 GIF defaults, which 0.1.7 moves back to judging library GIFs by their label. */
+const GIF_016_DEFAULTS = { reactionGifs: 'picture', replyGifs: 'cover' } as const;
+/** Set once the 0.1.7 move is done (or on a new install). */
+const GIF_LABEL_DONE = 'gifDefaults0161';
 
 /**
  * Storage keeps the whole settings object, so an install from before 0.1.6 has the old GIF defaults saved as if picked. On the
  * update each one still at its old default moves to the new default, once; a value picked on purpose cannot be told apart and
  * moves too. Site entries hold only real choices and are left alone. Called from onInstalled, and at worker start ('start'):
  * every 0.1.6 or later install sets the mark, so saved settings without it are from before 0.1.6 (a missed or failed update run).
+ * 0.1.7: a 0.1.6 install (it has that mark) whose GIF pair is still the 0.1.6 one, picture and cover, moves reaction GIFs to
+ * label, once, under its own mark. The same pair picked on purpose cannot be told apart and moves too. An install from before
+ * 0.1.6 gets only the first move: a reaction GIF it had set to picture stays one.
  */
 export async function migrateSettings(reason: string, previousVersion?: string): Promise<void> {
-  const got = await chrome.storage.local.get([GIF_DEFAULTS_DONE, 'settings']);
-  if (got[GIF_DEFAULTS_DONE]) return;
-  if (reason === 'install') return void (await chrome.storage.local.set({ [GIF_DEFAULTS_DONE]: true }));
+  const got = await chrome.storage.local.get([GIF_DEFAULTS_DONE, GIF_LABEL_DONE, 'settings']);
+  if (got[GIF_DEFAULTS_DONE] && got[GIF_LABEL_DONE]) return;
+  const marks = { [GIF_DEFAULTS_DONE]: true, [GIF_LABEL_DONE]: true };
+  if (reason === 'install') return void (await chrome.storage.local.set(marks));
   const saved = got.settings;
   if (reason === 'start') {
     // Nothing saved: a new install, which onInstalled marks.
     if (!saved || typeof saved !== 'object') return;
   } else if (reason !== 'update') return;
-  else if (!saved || typeof saved !== 'object' || !isNewerVersion('0.1.6', previousVersion)) return void (await chrome.storage.local.set({ [GIF_DEFAULTS_DONE]: true }));
+  else if (!saved || typeof saved !== 'object') return void (await chrome.storage.local.set(marks));
   const next = { ...(saved as Record<string, unknown>) };
-  for (const k of ['reactionGifs', 'replyGifs'] as const) if (next[k] === OLD_GIF_DEFAULTS[k]) next[k] = DEFAULT_SETTINGS[k];
-  // One write, so the settings never move without the mark.
-  await chrome.storage.local.set({ settings: next, [GIF_DEFAULTS_DONE]: true });
+  if (got[GIF_DEFAULTS_DONE]) {
+    // Blackout sets picture and cover itself: left alone.
+    if (next.preset !== 'blackout' && next.reactionGifs === GIF_016_DEFAULTS.reactionGifs && (next.replyGifs ?? GIF_016_DEFAULTS.replyGifs) === GIF_016_DEFAULTS.replyGifs) next.reactionGifs = DEFAULT_SETTINGS.reactionGifs;
+  } else if (reason === 'start' || isNewerVersion('0.1.6', previousVersion)) {
+    for (const k of ['reactionGifs', 'replyGifs'] as const) if (next[k] === OLD_GIF_DEFAULTS[k]) next[k] = DEFAULT_SETTINGS[k];
+  } else return void (await chrome.storage.local.set(marks));
+  // One write, so the settings never move without the marks.
+  await chrome.storage.local.set({ settings: next, ...marks });
 }

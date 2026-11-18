@@ -3,7 +3,7 @@
 import { chatNoteAll } from '../../chat-note';
 import { el } from '../../ui/dom';
 import { BLACKOUT_TEXT, BLUR_TEXT, HIDE_MODE_TEXT, KIND_MODE_TEXT, MEDIA_NEAR_TEXT, PRESET_TEXT, PROTECT_TEXT, RARE_TEXT, REACTION_GIF_TEXT, REPLIES_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT } from '../../text';
-import { DEFAULT_SETTINGS, SITE_PICTURE_FIELDS, blockingStatus, timeOf, type Settings, type SiteOverride } from '../../settings';
+import { DEFAULT_SETTINGS, SITE_PICTURE_FIELDS, blackoutLine, blockingStatus, timeOf, type Settings, type SiteOverride } from '../../settings';
 import { ANCHOR_TAB, type SettingAnchor } from '../../reason-settings';
 import { noEffectBecause, type NoEffectReason } from './examples';
 
@@ -152,8 +152,8 @@ const HIDDEN_KEYS = ['protect', 'hideImages', 'hideMediaPosts', 'mediaNearGame',
 const when = (t: string | number) => new Date(t).toLocaleString();
 const many = (n: number, words: { one: string; many: string; none?: string }) => (n === 0 && words.none ? words.none : n === 1 ? words.one : fill(words.many, { count: n }));
 
-/** Everything the panel says, from the settings and the time now. */
-export function buildSummary(s: Settings, now: number): Summary {
+/** Everything the panel says, from the settings, the time now and the release day from the spoiler list (for the blackout). */
+export function buildSummary(s: Settings, now: number, release?: string): Summary {
   const status = blockingStatus(s, now);
   const reason = status.on ? undefined : status.text;
   const paused = s.pausedUntil > now;
@@ -162,7 +162,8 @@ export function buildSummary(s: Settings, now: number): Summary {
     ...(!s.timerOff && (s.startDate || s.endDate)
       ? [s.startDate && s.endDate ? fill(S.timer.both, { start: when(s.startDate), end: when(s.endDate) }) : s.startDate ? fill(S.timer.start, { start: when(s.startDate) }) : fill(S.timer.end, { end: when(s.endDate) })]
       : []),
-    ...(s.blackoutDays ? [fill(S.blackout, { choice: valueName('blackoutDays', s.blackoutDays, false) })] : []),
+    // While the blackout covers: "Blackout is ON, until ..."; set but not covering now: which choice is set.
+    ...(s.blackoutDays ? [blackoutLine(s, release, now) ?? fill(S.blackout, { choice: valueName('blackoutDays', s.blackoutDays, false) })] : []),
   ];
   const level = `${S.labels.strictness}: ${valueName('strictness', s.strictness)}`;
   // Switched off: nothing else is in effect.
@@ -211,6 +212,8 @@ function hiddenLine(l: Line) {
 }
 
 export interface PanelUi {
+  /** The release day from the spoiler list, once read: the blackout line needs it. */
+  release?: string;
   /** Hidden with its Hide button (remembered by the page). */
   hidden: boolean;
   /** Opened on a narrow screen, where it starts as one line. */
@@ -250,7 +253,7 @@ function draw(box: HTMLElement, s: Settings, now: number, ui: PanelUi) {
     box.replaceChildren(button('show', 'sum-show', S.show, () => ui.setHidden(false)));
     return;
   }
-  const sum = buildSummary(s, now);
+  const sum = buildSummary(s, now, ui.release);
   const hide = button('hide', 'sum-hide', S.hide, () => ui.setHidden(true));
   const bar = button('bar', 'sum-bar', `${sum.short} · ${ui.open ? S.tapToClose : S.tapToOpen}`, () => ui.toggleOpen());
   bar.setAttribute('aria-expanded', String(ui.open));

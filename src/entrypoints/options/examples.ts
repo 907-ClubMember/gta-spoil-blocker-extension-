@@ -29,10 +29,10 @@ export type Model = Card[];
  */
 interface Info { pic?: true; near?: true; judged?: true; kind?: Kind; topic?: Category; weak?: true; named?: true; anyKind?: true; rare?: true; leak?: true; trailer?: true; store?: true; part?: PagePart }
 const BITS: Record<Bit, Info> = {
-  words: {}, feedPost: {}, spoilerWords: { judged: true, topic: 'story' }, storyName: { kind: 'lead', weak: true }, sideName: { kind: 'side', weak: true },
+  words: {}, feedPost: {}, blackoutPost: {}, lunchPost: {}, spoilerWords: { judged: true, topic: 'story' }, storyName: { kind: 'lead', weak: true }, sideName: { kind: 'side', weak: true },
   mission: { kind: 'heist' }, city: { kind: 'setting' }, trailerName: { kind: 'cast', weak: true, trailer: true },
   picture: { pic: true, near: true }, spoilerPicture: { pic: true, kind: 'heist' }, clipOnly: { pic: true },
-  libraryGif: { pic: true, near: true }, spoilerGif: { pic: true, near: true, judged: true }, replyGif: { pic: true, near: true }, replyPhoto: { pic: true, near: true },
+  libraryGif: { pic: true, near: true }, spoilerGif: { pic: true, near: true, judged: true }, gameGif: { pic: true, near: true, judged: true }, replyGif: { pic: true, near: true }, replyPhoto: { pic: true, near: true },
   // A reply that only hints is covered with the comment above it, so it goes by that comment's topic.
   comment: { kind: 'heist', part: 'comments' }, hintReply: { topic: 'story', part: 'comments' }, nameReply: { kind: 'heist', part: 'comments' },
   videoTitle: { kind: 'heist', part: 'titles' }, searchResult: { kind: 'heist', part: 'search' }, sidebarItem: { kind: 'heist', part: 'sidebar' },
@@ -81,7 +81,8 @@ const strictness = {
   strict: [game(['everydayName', 'covered'], ['spoilerWords', 'covered']), other(['everydayNameGame', 'covered'], ['everydayName', 'covered'])],
 };
 const hideLooks = [game(['words', 'shown'], ['spoilerWords', 'covered'])];
-const blackoutOn = [{ where: 'blackoutGame', bits: [['words', 'covered']] }, { where: 'blackoutOther', bits: [['words', 'covered']] }] satisfies Model;
+// Any post that mentions the game is covered, even one that gives nothing away; a post about something else stays.
+const blackoutOn = [{ where: 'blackoutGame', bits: [['words', 'covered']] }, { where: 'blackoutOther', bits: [['blackoutPost', 'covered'], ['lunchPost', 'shown']] }] satisfies Model;
 
 /** The picture settings, on the Pictures and comments tab and again in each site's own settings. */
 const PICTURES = {
@@ -98,8 +99,8 @@ const PICTURES = {
     post: [game(['words', 'shown'], ['picture', 'covered'], ['spoilerPicture', 'covered']), other(['words', 'shown'], ['picture', 'covered']), feed('covered')],
   },
   reactionGifs: {
-    label: [game(['words', 'shown'], ['libraryGif', 'shown'], ['spoilerGif', 'covered'])],
-    picture: [game(['words', 'shown'], ['libraryGif', 'covered'], ['spoilerGif', 'covered'])],
+    label: [game(['words', 'shown'], ['libraryGif', 'shown'], ['gameGif', 'covered'], ['spoilerGif', 'covered'])],
+    picture: [game(['words', 'shown'], ['libraryGif', 'covered'], ['gameGif', 'covered'], ['spoilerGif', 'covered'])],
   },
   replyGifs: {
     show: [game(['words', 'shown'], ['picture', 'covered'], ['replyGif', 'shown'])],
@@ -357,7 +358,7 @@ export function checkId(row: Element): OptionId | undefined {
 
 const ORDER: Drawn[] = ['covered', 'light', 'line', 'gone', 'shown'];
 
-/** One card in words, for the caption: "A page about ZZG 9. Covered: a, b. Stays visible: c." */
+/** One card in words, for the caption: "A page about GTA 6. Covered: a, b. Stays visible: c." */
 function sayCard(where: Card['where'], bits: [Bit, Drawn][]): string {
   const parts = ORDER.map((l) => [l, bits.filter(([, x]) => x === l).map(([b]) => T.bits[b].say)] as const).filter(([, b]) => b.length);
   return `${T.where[where]}. ${parts.map(([l, b]) => `${T.say[l]}: ${b.join(', ')}.`).join(' ')}`;

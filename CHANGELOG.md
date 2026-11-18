@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.7
+
+### Highlights
+
+- Reaction and reply GIFs are judged by their label again by default, and GIFs about GTA 6 stay covered. "Cover them" in Settings still covers all GIFs.
+- Blackout is simpler: it hides everything that mentions GTA 6, starting on release day, at midnight your time, or at a time you pick. Pages marked safe in My lists are left alone.
+- Old Reddit: comments are checked one by one, and the subreddit banner and the reply box are never covered.
+- Discord: in a channel marked as a game place only by its category, topic or server name, chat lines with spoiler words are now covered.
+- Revealing a covered post opens its own page, not another link in it.
+
+### Changes
+
+- **GIFs.** Reaction GIFs default to "Judge them by their label" again; GIFs about GTA 6 stay covered. Installs from 0.1.6 that are still on its GIF defaults move to the new default once. A reply GIF from a GIF library follows its label too, including new Reddit's Giphy replies. "Cover them" still covers all GIFs.
+- **Settings examples.** The examples now use GTA 6, with made-up posts.
+- **Blackout.** The card is rewritten: "Blackout: hide everything that mentions GTA 6", with a Start choice (release day, midnight your time, or a time you pick). Pages marked safe in My lists are left alone. The popup and Current settings say "Blackout is ON, until you turn it off".
+
+### Fixes
+
+#### Old Reddit
+- Comments are checked one by one. The subreddit banner and the reply box are never covered, and a game subreddit's whole content column is no longer covered as one block.
+
+#### Old Reddit and other forums
+- Posts about a subreddit's spoiler rules are no longer hidden just for using the word "spoiler".
+
+#### X
+- Picture replies under a covered post stay covered.
+
+#### Discord
+- In a channel marked as a game place only by its category, topic or server name, chat lines with spoiler words are now covered.
+- In a game channel, store-style link previews no longer skip the picture cover (a bot could fake them).
+- A chat message edited to a different text of the same length is checked again.
+
+#### All sites
+- Revealing a covered post opens its own page, not another link in it.
+- "This page only" entries saved before 0.1.6 apply again on web apps that change the part after # in the address.
+
 ## 0.1.6
 
 ### Highlights

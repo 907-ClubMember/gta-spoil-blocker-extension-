@@ -79,6 +79,16 @@ export interface Adapter {
    * often about something else): each is judged on its own words, the main post naming the game still counting as their context.
    */
   ownReplies?: boolean;
+  /** Main posts (a part of `main`) whose replies are judged as with ownReplies, where the site's other main posts keep theirs covered with them. */
+  ownRepliesOf?: string;
+  /**
+   * Comments (a part of `threads`) whose replies are judged on their own words when one is covered, whatever the reply option: each reply
+   * under a covered one reads as on a page about the game (replyContext) and gets its own cover and label (old Reddit, as X's ownReplies).
+   * The comment's own cover must leave its replies out: give it a coverParts entry.
+   */
+  ownThreads?: string;
+  /** The site's own header (a community's banner, name and tabs): its words are never read, so nothing in it is covered for them. Its pictures: keepClear. */
+  siteChrome?: string;
   /** Blocks that end a thread page's replies, whatever they hold (Reddit's "more posts" feed): see Scanner `threadEnd`. */
   threadEnd?: string;
   /** People's names and handles (display names, author lines): never matched against the list. `people`: person cards (their text is not read), except their `bio`, which only a high-risk signal covers. */
@@ -227,6 +237,13 @@ export const ADAPTERS: Adapter[] = [
     // A post page: the post is the one main post, and its comments (they follow it in the page, not inside it) are covered with it.
     main: 'shreddit-post[view-context="CommentsPage"], #siteTable .thing.link',
     threadKey: /\/comments\/(\w+)/,
+    // Old Reddit (0.1.7 report): its comments were covered with a covered post, one blur down the whole column with one label at the
+    // top. There each comment is judged on its own words, so every cover is one post or one comment with its own label.
+    ownRepliesOf: '.thing.link',
+    // ...and a covered comment never holds its replies under its one label: its cover is its own part (.entry: tagline, words, buttons),
+    // never its replies (.child), and each reply is judged on its own words as a reply of it (the reply option does not apply).
+    ownThreads: '.thing.comment',
+    coverParts: { '.thing.comment': ':scope > .entry' },
     // The "more posts" feed after the comments is not part of the thread.
     threadEnd: '#mosaic-pdp-feed',
     thumbs: '.thing a.thumbnail img, shreddit-post [slot="thumbnail"] img, shreddit-post img[slot="thumbnail"], faceplate-img[data-testid="search_post_thumbnail"]',
@@ -234,7 +251,10 @@ export const ADAPTERS: Adapter[] = [
     // A picture-only post on a page about the game: the picture is covered, not the post (its author row, title, votes and comments stay).
     mediaPostPictures: true,
     // The logged-out sign-up panel beside the feed and threads (read from a saved page): Reddit's own artwork behind "Join ...", never a spoiler.
-    keepClear: 'faceplate-tracker[noun="static_left_rail_banner"]',
+    // Old Reddit: a subreddit's header (its banner picture, its style's banner, its name and tabs) is the subreddit's own branding (0.1.7 report).
+    keepClear: 'faceplate-tracker[noun="static_left_rail_banner"], #header',
+    // ...and its words (a custom tab "Spoiler megathread"): never covered either.
+    siteChrome: '#header',
     // The home feed (both layouts, each sort) and r/all, r/popular: a mix of every community.
     // Moving from a thread to the feed in place leaves the thread's tags in the head.
     staleTags: true,

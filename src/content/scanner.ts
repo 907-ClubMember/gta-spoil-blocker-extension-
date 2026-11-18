@@ -6,7 +6,7 @@ import { SOURCE_SENTENCE, SOURCE_TAG, pickSource, type CoverResult, type Source,
 import { BARE_PICTURES, type BlurStrength, type HideMode, type Pictures, type RevealMode } from '../settings';
 import { DEBUG_WHY } from '../debug-flag';
 import { unwrap, OFFICIAL_SITES, TRAILER_WORDS, handleOf, hasOfficialHandles, hasPublisherAccounts, isOfficialChannelLink, isOfficialHandle, isOfficialName, isEngineTool, isPublisherHandle, isResultsPage, isSearchStoreLink, isStoreLink, isStorePage, isYouTube } from '../adapters/official';
-import { discordMessageOf, isLibraryGif, libraryLabel, libraryUrls, placeholderFor } from './gifs';
+import { discordMessageOf, inRedditGiphy, isLibraryGif, libraryLabel, libraryUrls, placeholderFor } from './gifs';
 import { isGamePlace, readChatPlace } from './discord-context';
 import { ACCESSORIES, EMBED_AUTHOR, LINK_PREVIEW, SOURCE_HOST, embedSource, embedText, embedsIn, isOfficialEmbed, textHash } from './discord-embeds';
 import { adapterFor } from '../adapters';
@@ -457,6 +457,12 @@ export interface ScanOptions {
   threadKey?: RegExp;
   /** The replies of a thread page are never covered with its main post: each is judged on its own words (see Adapter.ownReplies). */
   ownReplies?: boolean;
+  /** Main posts whose replies are judged as with ownReplies (old Reddit's post): see Adapter.ownRepliesOf. */
+  ownRepliesOf?: string;
+  /** Comments always covered "own content only", their replies judged on their own (old Reddit): see Adapter.ownThreads. */
+  ownThreads?: string;
+  /** The site's own header, whose words are never read: see Adapter.siteChrome. */
+  siteChrome?: string;
   /** Site adapter selector for blocks that end the replies of a thread page (Reddit's "more posts" feed), whatever they hold. */
   threadEnd?: string;
   /** Comments that sit inside the main post (Instagram): covered with it, and no run after it is (see inMain). */
@@ -891,7 +897,7 @@ export class Scanner {
   /** Posts holding a weak term that nothing has qualified yet; re-checked if a game mention arrives later. */
   private waiting = new WeakSet<Element>();
   /** Per post: text length at which the "game plus spoiler word" rule was last tried. */
-  /** Chat lines judged with a spoiler word but no game mention in reach yet. */
+  /** Chat lines judged with a spoiler word but no game mention in reach yet, with a hash of the text they were judged with. */
   private spoilTried = new WeakMap<Element, number>();
   private spoilPass = new WeakMap<Element, { pass: number; changes: number; gen: number }>();
   /** Goes up each time the page context changes: a block or post judged under the old one is read again, even if unchanged. */
@@ -1058,17 +1064,18 @@ export class Scanner {
   }
 
   /**
-   * Discord: a picture of a link preview or an attachment. An official store or publisher preview is let through (its words are still read with
-   * the message). In a game place every other one is covered out of caution, a library GIF excepted (its label decides). True when handled here.
+   * Discord: a picture of a link preview or an attachment. Outside a game place an official store or publisher preview is let through (its words
+   * are still read with the message). In a game place every one is covered out of caution, a library GIF excepted (its label decides). True when handled here.
    */
   private embedMedia(el: Element): boolean {
     const at = this.lightHost(el);
     if (!at.closest(ACCESSORIES)) return false;
     this.placeFresh();
-    // Only a link preview Discord unfurled from the message's own link (never a bot's embed, never a forwarded upload).
+    // Only a link preview Discord unfurled from the message's own link (never a bot's embed, never a forwarded upload), and never in a game
+    // place: a bot or webhook can write the store link in the message too, so there every picture is covered out of caution.
     const emb = at.closest(LINK_PREVIEW);
     const msg = this.opts.chatLines ? at.closest(this.opts.chatLines) : null;
-    if (emb && msg && isOfficialEmbed(emb, msg)) return true;
+    if (!this.chatGame && emb && msg && isOfficialEmbed(emb, msg)) return true;
     if (!this.chatGame) return false;
     if (this.skip(at) || isEmote(el)) return true;
     if (this.mediaVerdict(el) === 'clean') return false;
@@ -1098,7 +1105,7 @@ export class Scanner {
    * One embed, read to its end (a message is read only to its first 2000 characters), judged two ways and the stricter one taken: by Discord's
    * own rule for a message (its chat level), and as on the site it shows: X's rule for a display name written as a spoiler (glued names split),
    * and a picture next to the game (its text names the game: its pictures are covered, as on X, YouTube or Reddit). An official store or
-   * publisher embed is read the same way; only its pictures are let through (see embedMedia).
+   * publisher embed is read the same way; only its pictures are let through, outside a game place (see embedMedia).
    */
   private judgeEmbed(msg: Element, emb: Element): void {
     if (this.skip(msg)) return;
@@ -1108,7 +1115,8 @@ export class Scanner {
     this.embedRead.set(emb, hash);
     const found = this.matcher.inspect(text);
     const level = this.chatLevel(msg);
-    let res = this.matcher.decide(found, this.pageContext, this.pageContext, level);
+    const ctx = this.pageContext || this.gamePlace(msg);
+    let res = this.matcher.decide(found, ctx, ctx, level);
     let why: Why = found.strong.size ? 'alone' : found.context ? 'mention' : level ? 'chat' : 'page';
     const site = adapterFor(SOURCE_HOST[embedSource(emb)] || 'h.invalid');
     if (!res && site?.names) {
@@ -1120,7 +1128,7 @@ export class Scanner {
       this.hide(this.containerFor(msg), this.settleStrict(res, msg), why, emb);
       return;
     }
-    if (!found.context || isOfficialEmbed(emb, msg) || this.pics.mediaNearGame === 'off' || !this.matcher.judgesPosts || !this.pics.hideImages) return;
+    if (!found.context || (!this.chatGame && isOfficialEmbed(emb, msg)) || this.pics.mediaNearGame === 'off' || !this.matcher.judgesPosts || !this.pics.hideImages) return;
     for (const m of this.mediaIn(emb)) {
       if (this.skip(m) || isEmote(m) || this.mediaVerdict(m) === 'clean' || !this.bigMedia(m)) continue;
       this.hideMedia(this.lightHost(m), this.pictureRes((g) => g.mediaNearGame !== 'off'), 'near-game');
@@ -1420,9 +1428,10 @@ export class Scanner {
       return;
     }
     // A reply under a covered main post (X) is read as on a page about the game (replyContext).
-    const inThread = this.ctxKey !== null && this.replyContext(this.containerFor(parent));
+    const inThread = (this.ctxKey !== null || !!this.opts.ownThreads) && this.replyContext(this.containerFor(parent));
     const thread = !this.pageContext && inThread;
-    const res = this.matcher.decide(found, this.pageContext || thread, this.pageContext || thread, this.chatLevel(parent));
+    const ctx = this.pageContext || thread || this.gamePlace(parent);
+    const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(parent));
     if (res) {
       this.hide(this.containerFor(parent), this.settleStrict(res, parent), found.strong.size ? 'alone' : found.context ? 'mention' : this.chatLevel(parent) ? 'chat' : thread ? 'reply' : 'page', parent);
       return;
@@ -1499,15 +1508,19 @@ export class Scanner {
     // A site post is judged on its own words: the replies nested inside it are posts in their own right.
     const own = cards && post.matches(cards) ? this.ownText(post, cards) : this.textOf(post, POST_READ_CHARS);
     const text = `${own} ${this.unseenText(post)}`;
-    if (seen?.gen === this.contextGen && this.spoilTried.get(post) === text.length) return false;
-    this.spoilTried.set(post, text.length);
+    // Keyed on a hash of the text, not its length: an edit to a text of the same length is judged again.
+    const hash = textHash(text);
+    if (seen?.gen === this.contextGen && this.spoilTried.get(post) === hash) return false;
+    this.spoilTried.set(post, hash);
     const f = this.matcher.inspect(text);
     // In a part that is not the page's subject (a recommendation beside a trailer) the page does not lend it the game: it needs its
     // own. Except for a story word ("ending", "dies"): beside a page about the game it is taken as about the game too.
     const apart = !!this.opts.apart && !!post.closest(this.opts.apart);
     // A reply under a covered main post (X): as on a page about the game, and a strong story phrase counts with no name.
     const inThread = this.replyContext(post);
-    const page = (this.pageContext || inThread) && (!apart || f.spoil.has('story'));
+    // A chat line in a Discord game place is read as on a page about the game.
+    const gp = this.gamePlace(el);
+    const page = (this.pageContext || inThread || gp) && (!apart || f.spoil.has('story'));
     const phrase = inThread && CHAT_PLACE_PHRASES.test(own);
     // A chat line in a game place with a strong story phrase: covered with no name beside it (see CHAT_PLACE_PHRASES).
     const place = !!this.chatLevel(el) && (this.chatGame || this.pageContext) && CHAT_PLACE_PHRASES.test(own);
@@ -1518,7 +1531,7 @@ export class Scanner {
     this.declined = false;
     this.hide(post, { categories: f.spoil.size ? [...f.spoil] : ['story'], custom: false }, 'spoiler-word', el);
     // Covered only because the Discord channel is a game place: it comes off when the place no longer names the game.
-    if (place && !f.context && !page && this.chatGame && this.hidden.has(post)) this.cautioned.add(post);
+    if ((place || gp) && !f.context && !this.pageContext && !inThread && this.chatGame && this.hidden.has(post)) this.cautioned.add(post);
     return !this.declined;
   }
 
@@ -1879,20 +1892,34 @@ export class Scanner {
 
   /**
    * A press on a post's card off a thread page (a feed, a grid): the post's id goes on the shown list, so its own page or dialog opens shown.
-   * The id is the site's threadKey read from the card's own address or its first link that is a post's (Bluesky: the time link). Not on a
-   * thread page (a reply's link there can carry the thread's key), and not where the comments are named (Facebook: see shownMain).
+   * The id is the site's threadKey read from the card's own permalink only: Reddit's permalink attribute, or the card itself when it is the
+   * post's link (an Instagram tile). With no such permalink, the card's post links count only when they all name the same post (Bluesky's time
+   * link): a link to another post (old Reddit's link post, a quote) keeps nothing. A comment keeps nothing: its links carry its thread's id, a
+   * post the person never saw. Not on a thread page (a reply's link there can carry the thread's key), and not where the comments are named
+   * (Facebook: see shownMain).
    */
   private markShownId(card: Element): void {
     const re = this.opts.threadKey;
     if (!re || !this.opts.main || this.opts.replies || this.threadKey() !== null) return;
-    const links = card.matches('a[href]') ? [card] : [...card.querySelectorAll('a[href]')].slice(0, 30);
-    for (const a of links) {
+    if (this.opts.threads && card.closest(this.opts.threads)) return;
+    const id = (href: string | null): string | null => {
       let u: URL;
-      try { u = new URL(a.getAttribute('href') ?? '', this.doc.baseURI); } catch { continue; }
-      if (u.host !== this.doc.location?.host) continue;
+      try { u = new URL(href ?? '', this.doc.baseURI); } catch { return null; }
+      if (href === null || u.host !== this.doc.location?.host) return null;
       const m = re.exec(re.source.includes('\\?') ? u.pathname + u.search : u.pathname);
-      if (m) return void this.revealedThreads.add(m[1] ?? m[0]);
+      return m ? (m[1] ?? m[0]) : null;
+    };
+    const own = card.getAttribute('permalink') ?? card.getAttribute('data-permalink') ?? (card.matches('a[href]') ? card.getAttribute('href') : null);
+    let k = own !== null ? id(own) : null;
+    if (own === null) {
+      for (const a of [...card.querySelectorAll('a[href]')].slice(0, 30)) {
+        const m = id(a.getAttribute('href'));
+        if (m === null) continue;
+        if (k !== null && m !== k) return;
+        k = m;
+      }
     }
+    if (k !== null) this.revealedThreads.add(k);
   }
 
   /**
@@ -1914,8 +1941,8 @@ export class Scanner {
   private startCover(): void {
     const key = this.threadKey();
     const cell = this.anchor?.cell;
-    // Where each reply is judged on its own words (X), nothing is covered with the main post: the replies are read as on a page about the game.
-    if (this.opts.ownReplies) { this.startReplyContext(); return; }
+    // Where each reply is judged on its own words (X, old Reddit), nothing is covered with the main post: the replies are read as on a page about the game.
+    if (this.ownRepliesHere()) { this.startReplyContext(); return; }
     if (!this.opts.containers || key === null || !cell || this.opts.hideReplies === false || this.mainShown(this.mc?.el, key)) return;
     this.ensureAnchor();
     this.coverKey = key;
@@ -1947,10 +1974,51 @@ export class Scanner {
   /**
    * A reply of a thread whose main post is covered (ownReplies, X): judged as on a page about the game, so a name that waits for such a
    * page counts, and so does a strong story phrase with no name ("turns out"). Kept while the address is that thread, also once the
-   * site has taken the main post out of the page (a virtual list).
+   * site has taken the main post out of the page (a virtual list). The same for a reply under a covered comment of the site's ownThreads
+   * (old Reddit): the covered comment is its thread.
    */
   private replyContext(post: Element): boolean {
-    return this.ctxKey !== null && !!this.opts.ownReplies && this.ctxKey === this.threadKey() && post !== this.mc?.el && this.inRun(post);
+    if (this.ctxKey !== null && this.ownRepliesHere() && this.ctxKey === this.threadKey() && post !== this.mc?.el && this.inRun(post)) return true;
+    return this.underOwnThread(post);
+  }
+
+  /**
+   * A comment of the site's ownThreads (or its own part) was just covered for its words: the replies under it that are not covered were read
+   * before it was (a reply below that names the game covers it late), so they are read again, now as its replies (replyContext), as
+   * startReplyContext does for a covered main post.
+   */
+  private rereadReplies(el: Element): void {
+    const sel = this.opts.ownThreads;
+    if (!sel) return;
+    const c = el.matches(sel) ? el : el.parentElement?.matches(sel) ? el.parentElement : null;
+    if (!c) return;
+    // Its direct replies: reading one reads the replies under it too.
+    for (const r of c.querySelectorAll(sel)) {
+      if (r.parentElement?.closest(sel) !== c || this.hidden.has(r) || [...r.children].some((k) => this.hidden.has(k))) continue;
+      this.about.delete(r);
+      this.spoilTried.delete(r);
+      this.scan(r);
+    }
+  }
+
+  /** Is `post` a comment inside a comment of the site's ownThreads that is covered (and not shown): the comment, or its own part (coverParts)? */
+  private underOwnThread(post: Element): boolean {
+    const sel = this.opts.ownThreads;
+    if (!sel || !post.matches(sel)) return false;
+    const on = (e: Element) => this.hidden.has(e) && !this.revealed.has(e);
+    for (let up = post.parentElement?.closest(sel); up; up = up.parentElement?.closest(sel)) if (on(up) || [...up.children].some(on)) return true;
+    return false;
+  }
+
+  /**
+   * Are the replies of this thread judged on their own words (ownReplies), never covered with its main post? On the whole site, or for a main
+   * post of `ownRepliesOf` (old Reddit's .thing.link: new Reddit's post keeps its comments covered with it).
+   */
+  private ownRepliesHere(): boolean {
+    if (this.opts.ownReplies) return true;
+    const sel = this.opts.ownRepliesOf;
+    const m = this.mc?.el;
+    return !!sel && !!m && m.matches(sel);
   }
 
   /** Is `post` one of the replies covered with the main post: a comment inside it where it holds its comments, else one of the run after it? */
@@ -1977,7 +2045,7 @@ export class Scanner {
       if (!this.hidden.has(c.el) && !this.holdsPictureCover(c.el)) { if (marked) this.uncover(); return; }
       this.ensureAnchor();
       // Where each reply is judged on its own (X): the block is still worked out again (replies that land late are replies), nothing is covered.
-      if (this.opts.ownReplies) { this.startReplyContext(); return; }
+      if (this.ownRepliesHere()) { this.startReplyContext(); return; }
       if (this.coverKey !== key) { this.uncover(); this.startCover(); }
     } else if (marked && this.coverKey !== key) this.uncover();
   }
@@ -2190,6 +2258,11 @@ export class Scanner {
     return this.opts.chatLines && el.closest(this.opts.chatLines) ? 'strict' : undefined;
   }
 
+  /** Discord: a chat line in a game place (its server, channel, topic or category names the game) is read as on a page about the game. */
+  private gamePlace(el: Element): boolean {
+    return this.chatGame && !!this.chatLevel(el);
+  }
+
   /** "<b>First</b> <b>Last</b>" never matches piece by piece, so read the enclosing block as one text. */
   private checkJoined(el: Element): void {
     // Inside a site post with no paragraph of its own (a tweet is a pile of spans), the post is the block.
@@ -2206,7 +2279,8 @@ export class Scanner {
     if (text.length > MAX_POST_CHARS || (!this.forceJoin && seen?.gen === this.contextGen && this.joined.get(block) === text.length)) return;
     this.joined.set(block, text.length);
     const found = this.matcher.inspect(text);
-    const res = this.matcher.decide(found, this.pageContext, this.pageContext, this.chatLevel(block));
+    const ctx = this.pageContext || this.gamePlace(block);
+    const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(block));
     if (res) this.hide(this.containerFor(block), this.settleStrict(res, block), found.strong.size ? 'alone' : found.context ? 'mention' : this.chatLevel(block) ? 'chat' : 'page', block);
     else this.headingHide(block, found, block);
   }
@@ -2784,15 +2858,17 @@ export class Scanner {
   private replyPicture(el: Element): boolean {
     // Avatars, icons and emoji are never covered by these rules: skip the reading for them.
     if (!this.bigMedia(el, NAMED_CARD_MEDIA_PX)) return false;
-    // The cheap checks first: both kinds set to cover, then the kind of this one.
-    const gifsOn = this.pics.replyGifs !== 'cover';
+    // The cheap checks first: both kinds set to cover, then the kind of this one. GIFs judged by their label: a library GIF goes
+    // by its label (none here) and the reply's words, whatever replyGifs says.
+    const host = this.lightHost(el);
+    const labelGif = this.pics.reactionGifs === 'label' && (isLibraryGif(el, this.opts.gifs) || (inRedditGiphy(host) && this.isGifType(el)));
+    const gifsOn = this.pics.replyGifs !== 'cover' || labelGif;
     const photosOn = this.pics.replyPhotos !== 'cover';
     if (!gifsOn && !photosOn) return false;
-    if (!(this.isGifType(el) ? gifsOn : photosOn)) return false;
+    if (!(labelGif || (this.isGifType(el) ? gifsOn : photosOn))) return false;
     const cards = this.opts.containers;
     // Across a small player's shadow root too (Reddit plays a reply's GIF in its shreddit-player): the reply is around the player.
     // Its link, label and addresses are read there too: the player's own attributes and the link around it are outside the root.
-    const host = this.lightHost(el);
     const card = cards ? host.closest(cards) : null;
     if (!cards || !card || !this.isReply(card)) return false;
     // The reply's own words, @names and addresses included: a listed name inside one still counts. Other pictures' alt text,
@@ -2887,8 +2963,11 @@ export class Scanner {
   private coverGif(el: Element, label: string, own: string): void {
     const mode = this.pics.mediaNearGame;
     if (mode === 'off' || !this.matcher.judgesPosts || this.skip(el) || el.closest('nav, header, footer')) return;
-    if (this.pageContext || (mode === 'post' && this.namedBeside(el, `${own} ${label}`))) {
-      this.hideMedia(el, this.pictureRes((g) => g.mediaNearGame !== 'off' && (this.pageContext || g.mediaNearGame === 'post')), 'near-game');
+    // A reply under a covered main post (X, see replyContext) counts as on a page about the game, as in nearGame.
+    const c = this.opts.containers ? el.closest(this.opts.containers) : null;
+    const page = this.pageContext || (!!c && this.replyContext(c));
+    if (page || (mode === 'post' && this.namedBeside(el, `${own} ${label}`))) {
+      this.hideMedia(el, this.pictureRes((g) => g.mediaNearGame !== 'off' && (page || g.mediaNearGame === 'post')), 'near-game');
     }
   }
 
@@ -3381,11 +3460,11 @@ export class Scanner {
     const mode = this.pics.mediaNearGame;
     if (mode === 'off' || !this.matcher.judgesPosts) return;
     if (this.opts.embeds && this.embedMedia(el)) return;
-    if (mode === 'page' && !this.pageContext) {
-      // Not a page about the game: only a picture in a card whose own words are covered (its title part, say) is still covered.
-      const c = this.opts.containers ? el.closest(this.opts.containers) : null;
-      if (!c || !this.wordsCovered(c)) return;
-    }
+    // A reply under a covered main post (X, see replyContext) is on a page about the game for its pictures too, as for its words.
+    const c = this.opts.containers ? el.closest(this.opts.containers) : null;
+    const page = this.pageContext || (!!c && this.replyContext(c));
+    // Not a page about the game: only a picture in a card whose own words are covered (its title part, say) is still covered.
+    if (mode === 'page' && !page && (!c || !this.wordsCovered(c))) return;
     // A picture inside a small component's shadow root (Reddit's faceplate-img) is judged and covered at that component.
     const at = this.lightHost(el);
     // Hidden already (alone or inside a hidden post), or shown again by the user.
@@ -3417,13 +3496,13 @@ export class Scanner {
     // result pictures from 72 px, avatars 40-55 px, emoji and icons under 40 px). The size first: reading the card for the name
     // costs a whole-card read, and on a big card with many icons that ran for each one on every text piece (a scan of one Google
     // card took over a second, and content arriving later waited behind it).
-    const whole = !!card && (covered || (this.pageContext && this.bigMedia(el, NAMED_CARD_MEDIA_PX) && this.namedBeside(at, own)));
+    const whole = !!card && (covered || (page && this.bigMedia(el, NAMED_CARD_MEDIA_PX) && this.namedBeside(at, own)));
     if (!(whole || this.bigMedia(el) || this.isThumb(el))) return;
     // A part of the page that is not its subject (recommended videos, other games' capsules) is judged on its own words.
     const apart = !!this.opts.apart && !!at.closest(this.opts.apart);
-    if (whole || (apart ? this.namedBeside(at, own) : this.pageContext || (mode === 'post' && this.namedBeside(at, own)))) {
+    if (whole || (apart ? this.namedBeside(at, own) : page || (mode === 'post' && this.namedBeside(at, own)))) {
       // Under the global choice: the same gates as above, with its mode.
-      const byGlobal = (g: Pictures) => g.mediaNearGame !== 'off' && (g.mediaNearGame !== 'page' || this.pageContext || covered) && (whole || apart || this.pageContext || g.mediaNearGame === 'post');
+      const byGlobal = (g: Pictures) => g.mediaNearGame !== 'off' && (g.mediaNearGame !== 'page' || page || covered) && (whole || apart || page || g.mediaNearGame === 'post');
       this.hideMedia(at, this.pictureRes(byGlobal), 'near-game');
     }
   }
@@ -3731,6 +3810,8 @@ export class Scanner {
         /* a selector the browser does not know: the switch does nothing */
       }
     }
+    // The site's own header (old Reddit's subreddit banner, name and tabs): its words are never read (its pictures: keepClear).
+    if (this.opts.siteChrome && el.closest(this.opts.siteChrome)) return true;
     // Covered along with the main post of the thread.
     if (this.opts.main && el.closest('[data-gsb-under]')) return true;
     // Already hidden, revealed by the user, or one of our own labels.
@@ -3750,7 +3831,6 @@ export class Scanner {
   private get flagged(): boolean {
     return this.opts.hideReplies === false && !!this.opts.threads && !!this.opts.containers;
   }
-
   /** The outermost reply or reply area between `el` (included) and the thread `h` (excluded), or null. */
   private replyUnder(h: Element, el: Element): Element | null {
     const keep = this.keepSel;
@@ -4322,6 +4402,7 @@ export class Scanner {
     }
     if (own) this.openAll(el);
     else if (this.flagged) this.whole.add(el);
+    if (why !== 'near-game' && why !== 'media') this.rereadReplies(el);
     if (this.opts.main && this.mc?.el === el) this.startCover();
     // A picture of the main post covered on its own, where that counts as the post covered (see holdsPictureCover): its replies go now,
     // not at the next pass (there may be none).

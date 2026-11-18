@@ -210,8 +210,8 @@
     }
   },
   "blackout": {
-    "name": "Hide every post about GTA 6 for a while",
-    "help": "For a set time, any post that names GTA 6 is hidden, whatever it says. This catches things before the spoiler list knows them. Safe places are left alone.",
+    "name": "Blackout: hide everything that mentions GTA 6",
+    "help": "An override on top of your other settings: while it's on, anything that mentions GTA 6 is covered wherever hiding is on, even if it gives nothing away. Use it if you want to see nothing about the game until you've played. Pages you've marked safe in My lists are left alone.",
     "options": {
       "0": "Off",
       "3": "For 3 days",
@@ -220,7 +220,11 @@
       "-1": "Until I turn it off"
     },
     "start": "Start",
-    "startHelp": "Leave Start empty to begin on the release day the spoiler list gives, at midnight your time. \"Until I turn it off\" never ends: pick Off to stop.",
+    "startChoice": {
+      "release": "Starts on release day (midnight your time)",
+      "pick": "Starts at a time I pick"
+    },
+    "startHelp": "The release day comes from the spoiler list. \"Until I turn it off\" never ends: pick Off to stop.",
     "zone": "Time zone",
     "zoneYours": "My time zone"
   },
@@ -326,7 +330,7 @@
   "replies": {
     "all": {
       "name": "Hide the replies under it too",
-      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X, each reply is always checked on its own."
+      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X and old Reddit, each reply is always checked on its own."
     },
     "own": {
       "name": "Hide only that comment",
@@ -354,7 +358,7 @@
     },
     "cover": {
       "name": "Cover them like other pictures (default)",
-      "help": "Reply GIFs without a description are covered like any other picture next to the name of the game. Safer, but harmless reaction GIFs get covered too. A GIF from a GIF library that has a description is judged by 'Reaction GIFs from a GIF library' above, whatever this says."
+      "help": "Reply GIFs that are not from a GIF library are covered like any other picture next to the name of the game. Safer, but harmless ones get covered too. A GIF from a GIF library is judged by 'Reaction GIFs from a GIF library' above, whatever this says."
     }
   },
   "replyPhotos": {
@@ -369,12 +373,12 @@
   },
   "reactionGifs": {
     "label": {
-      "name": "Judge them by their label",
-      "help": "A reaction GIF from a GIF library is hidden only when its label or title gives something away. Otherwise it shows, even next to the name of the game. A spoiler GIF with a harmless-sounding label can slip through; pick the other choice if you want no risk."
+      "name": "Judge them by their label (default)",
+      "help": "A GIF from a GIF library, posted as a reply or not, is hidden when its label or title names the game (like GTA 6) or gives something away. A reply's own words about the game count too. Otherwise it shows, even next to the name of the game. A spoiler GIF with a harmless-sounding label can slip through; pick the other choice if you want no risk."
     },
     "picture": {
-      "name": "Always cover them like pictures (default)",
-      "help": "Reaction GIFs are treated like any other picture, so they are covered whenever the pictures above would be. Safer, but harmless GIFs get covered too."
+      "name": "Always cover them like pictures",
+      "help": "Reaction GIFs, reply GIFs from a GIF library included, are treated like any other picture, so they are covered whenever the pictures above would be. Safer, but harmless GIFs get covered too."
     }
   },
   "updateSchedule": {
@@ -384,7 +388,7 @@
     "manual": "Only when I press \"Update spoiler list now\""
   },
   "examples": {
-    "title": "Example with made-up posts about ZZG 9, an invented game.",
+    "title": "Example with made-up posts about GTA 6.",
     "legendCovered": "Covered",
     "legendShown": "Stays visible",
     "removed": "Removed: nothing is left here",
@@ -417,22 +421,23 @@
       "shown": "Stays visible"
     },
     "where": {
-      "game": "A page about ZZG 9",
+      "game": "A page about GTA 6",
       "other": "Any other page",
       "feed": "Your home feed, mixed posts (like Reddit or YouTube home)",
-      "blackoutGame": "A page about ZZG 9, during the blackout",
+      "blackoutGame": "A page about GTA 6, during the blackout",
       "blackoutOther": "Any other page, during the blackout"
     },
     "bits": {
-      "words": { "show": "Zorblax Quux: Two more weeks until ZZG 9!", "say": "a post about ZZG 9" },
-      "spoilerWords": { "show": "Zorblax Quux: The way ZZG 9 ends, wow. Nobody saw that last twist coming.", "say": "a post that gives away the ending" },
-      "storyName": { "show": "Brisa Talon is my favourite character so far.", "say": "a post with a story character's name" },
+      "words": { "show": "Zorblax Quux: Two more weeks until GTA 6!", "say": "a post about GTA 6" },
+      "spoilerWords": { "show": "Zorblax Quux: Just finished GTA 6. Here is how it ends:", "say": "a post that gives away the ending" },
+      "storyName": { "show": "Jason and Lucia are my favourite characters so far.", "say": "a post with a story character's name" },
       "picture": { "show": "Picture: sunset over the city", "say": "a big picture next to the post" },
       "spoilerPicture": { "show": "Picture: quux-bank-heist-ending.png", "say": "a picture whose file name gives something away" },
       "clipOnly": { "show": "A video clip with no words", "say": "a post that is only a video clip" },
       "libraryGif": { "show": "GIF: happy dance", "say": "a reaction GIF with a harmless label" },
       "spoilerGif": { "show": "GIF: Quux Bank Heist last scene", "say": "a reaction GIF whose label gives something away" },
-      "replyGif": { "show": "Reply: a GIF with no words", "say": "a GIF posted as a reply" },
+      "gameGif": { "show": "GIF: GTA 6 hype", "say": "a reaction GIF whose label names the game" },
+      "replyGif": { "show": "Reply: a GIF with no words", "say": "a GIF posted as a reply, not from a GIF library" },
       "replyPhoto": { "show": "Reply: a photo with no words", "say": "a photo posted as a reply" },
       "comment": { "show": "The Quux Bank Heist ends with a betrayal.", "say": "the spoiler comment" },
       "hintReply": { "show": "Reply: Wow, I did not see that coming.", "say": "a reply that only hints" },
@@ -444,17 +449,19 @@
       "videoTitle": { "show": "Video: Quux Bank Heist ending explained", "say": "a video title" },
       "searchResult": { "show": "Search result: how the Quux Bank Heist ends", "say": "a search result" },
       "sidebarItem": { "show": "Up next: the Quux Bank Heist finale", "say": "a suggestion in the side column" },
-      "newsText": { "show": "Article: ZZG 9 review, and that Quux Bank Heist twist", "say": "the text of a news article" },
+      "newsText": { "show": "Article: GTA 6 review, and that Quux Bank Heist twist", "say": "the text of a news article" },
       "feedPost": { "show": "Quill Marrow: My cat learned to open the fridge.", "say": "a post about something else" },
-      "channelPost": { "show": "Zorblax Quux: Watch ZorbLeaks for the whole ZZG 9 story.", "say": "a post that names a known spoiler channel" },
+      "channelPost": { "show": "Zorblax Quux: Watch ZorbLeaks for the whole GTA 6 story.", "say": "a post that names a known spoiler channel" },
       "kindName": { "show": "Can't stop thinking about {name}.", "say": "a post with a name of this kind" },
-      "kindNameGame": { "show": "ZZG 9 fans, what do you make of {name}?", "say": "a post that names ZZG 9 and a name of this kind" },
+      "kindNameGame": { "show": "GTA 6 fans, what do you make of {name}?", "say": "a post that names GTA 6 and a name of this kind" },
       "everydayName": { "show": "Biscuit was so funny in that bit.", "say": "a post with a name that is also an everyday word" },
-      "everydayNameGame": { "show": "ZZG 9 fans: Biscuit was so funny in that bit.", "say": "a post that names ZZG 9 and a name that is also an everyday word" },
+      "everydayNameGame": { "show": "GTA 6 fans: Biscuit was so funny in that bit.", "say": "a post that names GTA 6 and a name that is also an everyday word" },
       "rareName": { "show": "Quillon Vext waved at me today.", "say": "a post with an unusual name" },
       "leakName": { "show": "Quillon Vext leaked? No way.", "say": "a post that says an unusual name leaked" },
-      "trailerPost": { "show": "ZZG 9 trailer 2 is out, go watch it!", "say": "a post about a ZZG 9 trailer" },
-      "storePost": { "show": "ZZG 9 is up for pre-order: meet Quillon Vext in the standard edition.", "say": "an official store page or a post that links to one" }
+      "trailerPost": { "show": "GTA 6 trailer 2 is out, go watch it!", "say": "a post about a GTA 6 trailer" },
+      "blackoutPost": { "show": "GTA 6 trailer reactions", "say": "a post that mentions GTA 6" },
+      "lunchPost": { "show": "Lunch was great", "say": "a post about something else" },
+      "storePost": { "show": "GTA 6 is up for pre-order: meet Quillon Vext in the standard edition.", "say": "an official store page or a post that links to one" }
     }
   },
   "releaseNotes": {
@@ -470,6 +477,13 @@
       "Picture-only posts cover just the picture, and one press on a cover shows the whole post.",
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
+    ],
+    "v0_1_7": [
+      "Reaction and reply GIFs are judged by their label again by default, and GIFs about GTA 6 stay covered. \"Cover them\" in Settings still covers all GIFs.",
+      "Blackout is simpler: it hides everything that mentions GTA 6, starting on release day, at midnight your time, or at a time you pick. Pages marked safe in My lists are left alone.",
+      "Old Reddit: comments are checked one by one, and the subreddit banner and the reply box are never covered.",
+      "Discord: in a channel marked as a game place only by its category, topic or server name, chat lines with spoiler words are now covered.",
+      "Revealing a covered post opens its own page, not another link in it."
     ],
     "v0_1_6": [
       "Chats on Discord, Twitch, Kick and YouTube check each message on its own, and a mention no longer hides the messages after it.",
@@ -512,7 +526,7 @@
   },
   "text": {
     "previewPost": "Franklin and Lamar argue about cars in Strawberry.",
-    "settingsIntro": "Changes save by themselves and reach open pages straight away. Examples here use an invented game, ZZG 9, so they give nothing away about GTA 6.",
+    "settingsIntro": "Changes save by themselves and reach open pages straight away. Examples here are made-up posts about GTA 6; they give nothing away.",
     "resetName": "Reset to defaults",
     "resetDone": "Settings reset. Your lists are kept.",
     "resetHelp": "Puts every choice back the way it came (look, pictures, video, topics, timer, a pause). Your lists stay: your own words, words never to hide, accounts, sites and per-site settings. The spoiler list is kept too.",
@@ -726,6 +740,8 @@
         "end": "Hiding until {end}"
       },
       "blackout": "Blackout: {choice}",
+      "blackoutOn": "Blackout is ON, until you turn it off",
+      "blackoutOnUntil": "Blackout is ON, until {end}",
       "differCount": {
         "none": "All default",
         "one": "1 differs from default",

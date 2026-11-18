@@ -463,7 +463,7 @@ export class Matcher {
 
   /** What a text holds, without deciding anything. Lets a caller judge a whole post or page. */
   inspect(text: string): Found {
-    const full = this.scan(...this.words(text));
+    const full = this.scan(...this.words(text), !SPOILER_LEAD.test(text));
     if (!text.includes('@')) return full;
     const bare = text.replace(MENTION, '$1 ');
     if (bare === text) return full;
@@ -596,7 +596,8 @@ export class Matcher {
     return out;
   }
 
-  private scan(words: string[], starred: ReadonlySet<string> = new Set()): Found {
+  // `rules`: a "spoiler" that only names a rule ("spoiler flair") is no spoiler word (see namesSpoilerRule). Only inspect reads it.
+  private scan(words: string[], starred: ReadonlySet<string> = new Set(), rules = false): Found {
     const strong = new Set<Category | 'custom'>();
     const weak = new Set<Category | 'custom'>();
     const strongGroups = new Set<KindGroup | 'custom'>();
@@ -656,7 +657,7 @@ export class Matcher {
     // Where every matched name sits (in `words`): a hint word inside any of them is part of that name and vouches for no other.
     const nameSpans: [from: number, to: number][] = [];
     for (let i = 0; i < plain.length; i++) {
-      for (const s of this.spoilers.get(plain[i]!) ?? []) if (hasSequence(plain, i, s.tokens) && !asksNoSpoilers(plain, i, this.gameWords)) spoil.add(s.c);
+      for (const s of this.spoilers.get(plain[i]!) ?? []) if (hasSequence(plain, i, s.tokens) && !asksNoSpoilers(plain, i, this.gameWords) && !(rules && namesSpoilerRule(plain, i))) spoil.add(s.c);
       const bucket = this.index.get(plain[i]!);
       if (!bucket) continue;
       for (const e of bucket) {
@@ -818,6 +819,25 @@ function asksNoSpoilers(w: readonly string[], i: number, gameWords: ReadonlySet<
     if (!NO_SPOILER_BETWEEN.has(b) || ++between > 3) return false;
   }
   return false;
+}
+
+/** Words after "spoiler" that make it the name of a rule: "spoiler policy", "use spoiler flair", "spoiler tags", "spoiler megathread". */
+// Not 'warning': "spoiler warning" is how a spoiler starts.
+const SPOILER_RULE_AFTER = new Set(['policy', 'flair', 'tag', 'tags', 'rules', 'megathread']);
+/**
+ * "spoiler" with a colon or dash after it, or after "spoiler flair" / "spoiler tag": a spoiler starts there ("Spoiler: ...", "Spoiler
+ * flair: ..."). The words lose the colon, so "Spoiler: tag me when ..." would read as "spoiler tag": such a text gets no rule exemption.
+ */
+const SPOILER_LEAD = /\bspoilers?(?:[\s-]+(?:flair|tags?))?(?:\s*[:–—]|\s+-\s)/i;
+
+/**
+ * "spoiler" at `i` only names a rule about spoilers ("spoiler policy", "tag it with spoiler flair", "marked as spoiler"), so it is
+ * no sign the post spoils. Only for the spoiler-word rule: beside a weak name "spoiler" is still a hint word.
+ */
+function namesSpoilerRule(w: readonly string[], i: number): boolean {
+  if (w[i] !== 'spoiler') return false;
+  if (SPOILER_RULE_AFTER.has(w[i + 1] ?? '')) return true;
+  return w[i - 1] === 'as' && (w[i - 2] === 'mark' || w[i - 2] === 'marked');
 }
 
 /** How each category reads on a label ("Hidden: character spoiler", not "characters spoiler"). */

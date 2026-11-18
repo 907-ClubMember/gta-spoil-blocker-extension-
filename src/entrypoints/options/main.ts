@@ -29,11 +29,16 @@ app.after(summaryBox);
 let summaryHidden = false;
 try { summaryHidden = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* no storage: shown */ }
 let summaryOpen = false;
+// The release day from the spoiler list in use (render reads it): the panel's blackout line needs it.
+let release: string | undefined;
+// The blackout's "Starts at a time I pick" while no time is typed yet (a typed time keeps it picked).
+let pickBlackoutStart = false;
 function showSummary() {
   if (!s) return;
   // Drawn again when a pause or the timer runs out.
   scheduleRedraw(s, Date.now(), () => void render());
   drawSummary(summaryBox, s, Date.now(), {
+    release,
     hidden: summaryHidden,
     open: summaryOpen,
     setHidden: (v) => {
@@ -345,6 +350,7 @@ async function render() {
   const focus = rememberFocus(app);
   s = await loadSettings();
   const [list, meta, refusedAt] = await Promise.all([activeList(), loadMeta(), lastRefusal()]);
+  release = list.release;
   // A folder loaded by hand (installed from GitHub): updates are manual (the popup says when one is out).
   let installType: string | undefined;
   try { installType = (await chrome.management?.getSelf?.())?.installType; } catch { /* the store text: no line */ }
@@ -619,6 +625,13 @@ async function render() {
   blackout.addEventListener('change', () => commit({ blackoutDays: Number(blackout.value) as Settings['blackoutDays'] }).then(render));
   const zonePick = el('select', { ariaLabel: BLACKOUT_TEXT.zone }, el('option', { value: '' }, BLACKOUT_TEXT.zoneYours), ...Intl.supportedValuesOf('timeZone').map((z) => el('option', { value: z, selected: z === s.blackoutZone }, z.replaceAll('_', ' '))));
   zonePick.addEventListener('change', () => commit({ blackoutZone: zonePick.value }).then(render));
+  // Start: the release day (no time typed) or a time picked here.
+  const picking = pickBlackoutStart || Boolean(s.blackoutFrom);
+  const startPick = el('select', { ariaLabel: BLACKOUT_TEXT.start }, ...(['release', 'pick'] as const).map((k) => el('option', { value: k, selected: (k === 'pick') === picking }, BLACKOUT_TEXT.startChoice[k])));
+  startPick.addEventListener('change', () => {
+    pickBlackoutStart = startPick.value === 'pick';
+    void (pickBlackoutStart ? render() : commit({ blackoutFrom: '' }).then(render));
+  });
 
   const sel = el('select', { ariaLabel: TEXT.updates.name });
   sel.dataset.key = 'updateEvery';
@@ -684,7 +697,7 @@ async function render() {
       el('section', { class: 'card support' }, el('div', {}, el('h2', {}, TEXT.donate.name), el('p', { class: 'help' }, TEXT.donate.help)), el('div', { class: 'support-links' }, link(DONATE_URL, TEXT.donate.link), link(WIKI_URL, TEXT.donate.site), link(MAKER_URL, TEXT.donate.own))),
       section(TEXT.looksTitle, TEXT.looksHelp, looks(TEXT.looksTitle, presetCards), ...(s.preset === 'custom' ? [el('p', { class: 'help' }, `${PRESET_TEXT.custom.name}: ${PRESET_TEXT.custom.help}`)] : []),
         fold(TEXT.looksOwn, false, looks(TEXT.looksOwn, hideCards))),
-      section(BLACKOUT_TEXT.name, BLACKOUT_TEXT.help, blackout, ...(s.blackoutDays ? [el('div', { class: 'times' }, timeBox(BLACKOUT_TEXT.start, s.blackoutFrom, (v) => ({ blackoutFrom: v })), el('label', {}, BLACKOUT_TEXT.zone, zonePick)), el('p', { class: 'help' }, BLACKOUT_TEXT.startHelp)] : [])),
+      section(BLACKOUT_TEXT.name, BLACKOUT_TEXT.help, blackout, ...(s.blackoutDays ? [el('div', { class: 'blackout-start' }, startPick), ...(picking ? [el('div', { class: 'times' }, timeBox(BLACKOUT_TEXT.start, s.blackoutFrom, (v) => ({ blackoutFrom: v })), el('label', {}, BLACKOUT_TEXT.zone, zonePick))] : []), el('p', { class: 'help' }, BLACKOUT_TEXT.startHelp)] : [])),
       section(TEXT.resetName, TEXT.resetHelp, el('div', { class: 'reset-row' }, resetBtn), el('p', { class: 'help' }, TEXT.clearListsHelp), el('div', { class: 'reset-row' }, clearBtn),
         el('p', { class: 'msg reset-msg', role: 'status' }, resetDone === 'reset' ? TEXT.resetDone : resetDone === 'cleared' ? TEXT.clearListsDone : '')),
     ),
