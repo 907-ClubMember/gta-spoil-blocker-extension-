@@ -39,7 +39,7 @@ export interface Adapter {
   /** Only the host itself (and www.), never a subdomain: Google search, whose subdomains are other products (docs, news, maps). */
   exactHost?: boolean;
   /** Picture layers the player lays over its video (a poster, end-screen tiles): covered whenever the video is. */
-  playerLayers?: { player: string; layers: string; play?: string };
+  playerLayers?: { player: string; layers: string; play?: string; preview?: string };
   /** Messages are a flat list with no nesting (a chat). */
   chat?: boolean;
   /** A fast chat's message rows (a part of containers): each is judged on its own words at Strict, and a mention covers no later line. */
@@ -124,6 +124,11 @@ export interface Adapter {
   /** Addresses where keepClear does not apply (recorded broadcasts, clips). */
   keepClearNot?: RegExp;
   /**
+   * The site's own signs that its player (keepClear) is live: in the player, or on the page outside every card and side bar. They win over a
+   * finite duration (a live player can hold one for a while), and one that arrives late releases a player covered before it came.
+   */
+  liveMarks?: string;
+  /**
    * The site's own search page (its path): a list of results, each judged on its own words. What was searched for (the address's query, and
    * its echo in the title, heading or description) does not make the page about the game. A search engine's results page is not one.
    */
@@ -134,7 +139,10 @@ export interface Adapter {
   boxArt?: string;
   people?: string;
   bio?: string;
-  /** The comments of a thread page sit inside the main post (Instagram, Facebook): these blocks are covered with it, nothing after it. See Scanner `inMain`. */
+  /**
+   * The comments of a thread page sit inside the main post (Instagram, Facebook): these blocks are its replies, nothing after it. Covered with
+   * it (Scanner `inMain`), or with `ownReplies` (both sites from 0.1.8) left out of its cover and judged on their own words (Scanner `ownMain`).
+   */
   commentsInside?: string;
   /** Cards that count only on a thread page (where `threadKey` matches the address), never on a feed. See Scanner `syncCards`. */
   threadCards?: string;
@@ -208,7 +216,14 @@ export const ADAPTERS: Adapter[] = [
       'ytd-rich-item-renderer', 'ytd-video-renderer', 'ytd-compact-video-renderer', 'ytd-grid-video-renderer',
       'ytd-reel-item-renderer', 'ytd-playlist-renderer', 'ytd-channel-renderer', 'ytd-comment-thread-renderer',
       'yt-lockup-view-model', 'ytm-shorts-lockup-view-model',
+      // The player's autoplay card at a video's end ("Up next in 5"): another video, judged on its own title and channel (0.1.10).
+      '.ytp-autonav-endscreen-upnext-container',
     ].join(', '),
+    // Its thumbnail is a box painted with a background picture, filled in and laid out only when the video ends: named, it is a picture
+    // whatever its size then.
+    thumbs: '.ytp-autonav-endscreen-upnext-thumbnail',
+    // Its cover is the part with the thumbnail, title and channel: Cancel and Play now beside it stay pressable.
+    coverParts: { '.ytp-autonav-endscreen-upnext-container': ':is(a, div):has(.ytp-autonav-endscreen-upnext-thumbnail):has(.ytp-autonav-endscreen-upnext-title):not(:has(.ytp-autonav-endscreen-upnext-cancel-button, .ytp-autonav-endscreen-upnext-play-button))' },
     // Read from a live video page: a reply is itself a comment thread, nested in its parent's replies area.
     threads: 'ytd-comment-thread-renderer',
     replyAreas: 'ytd-comment-replies-renderer',
@@ -216,10 +231,11 @@ export const ADAPTERS: Adapter[] = [
     names: '#author-text',
     // Only the watch page's recommendations and its shorts shelf: not #secondary as a whole (the chapters and description panels
     // there are this video), and not a shorts shelf on a search or channel page (there the shorts are what the page is about).
-    apart: '#related, ytd-watch-next-secondary-results-renderer, ytd-watch-flexy ytd-reel-shelf-renderer',
+    apart: '#related, ytd-watch-next-secondary-results-renderer, ytd-watch-flexy ytd-reel-shelf-renderer, .ytp-autonav-endscreen-upnext-container',
     // With autoplay off the player shows a poster over the video (not the video), and at the end other videos' tiles and cards.
     // The progress bar's frame preview and the up-next tile are named from memory, not read from a saved page (unverified).
-    playerLayers: { player: '.html5-video-player', layers: '.ytp-cued-thumbnail-overlay-image, .ytp-endscreen-content, .ytp-videowall-still, .ytp-ce-element, .ytp-tooltip-bg, .ytp-autonav-endscreen-upnext-thumbnail', play: '.ytp-large-play-button' },
+    // The hover player of search and home results is mounted once in the page and laid over the card under the pointer (0.1.10).
+    playerLayers: { player: '.html5-video-player', layers: '.ytp-cued-thumbnail-overlay-image, .ytp-endscreen-content, .ytp-videowall-still, .ytp-ce-element, .ytp-tooltip-bg, .ytp-autonav-endscreen-upnext-thumbnail', play: '.ytp-large-play-button', preview: 'ytd-video-preview, #video-preview' },
     // Read from a saved watch page: the video's channel shows in the owner row under the title, in the description's
     // channel card, and in the header of the description panel beside the video. A Shorts player page holds each
     // short's channel row inside that short's own block (its player too). Only channel rows count: a comment's
@@ -255,7 +271,7 @@ export const ADAPTERS: Adapter[] = [
     threads: 'shreddit-comment, .thing.comment',
     // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
     // Old Reddit's author link (not the flair, which is free text); new Reddit's author links in a post's or comment's header.
-    names: '.tagline a.author, [slot="commentMeta"] a[href*="/user/"], [slot="credit-bar"] a[href*="/user/"]',
+    names: '.tagline a.author, [slot="commentMeta"] a[href*="/user/"], [slot="credit-bar"] a[href*="/user/"], rs-timeline-event-hovercard',
     primaryPost: 'shreddit-post, #siteTable .thing.link',
     // A post page: the post is the one main post; its comments follow it in the page, not inside it.
     main: 'shreddit-post[view-context="CommentsPage"], #siteTable .thing.link',
@@ -282,7 +298,11 @@ export const ADAPTERS: Adapter[] = [
     // Old Reddit: a subreddit's header (its banner picture, its style's banner, its name and tabs) is the subreddit's own branding (0.1.7 report).
     keepClear: 'faceplate-tracker[noun="static_left_rail_banner"], #header',
     // ...and its words (a custom tab "Spoiler megathread"): never covered either.
-    siteChrome: '#header',
+    // ...and the Chats window's room header, typing line and composer (0.1.10 report: the window was covered as one). The thread list's
+    // previews and the room's pinned banners are other people's words: read like messages.
+    siteChrome: '#header, rs-app-window-controls, rs-room-typing-banner, rs-message-composer',
+    // In the Chats window each message (rs-timeline-event) is judged on its own, the viewer's own too: the window gives no unique id for the
+    // signed-in user to match a sender by, and a display name can be copied.
     // The home feed (both layouts, each sort) and r/all, r/popular: a mix of every community.
     // Moving from a thread to the feed in place leaves the thread's tags in the head.
     staleTags: true,
@@ -328,7 +348,7 @@ export const ADAPTERS: Adapter[] = [
     exactHost: true,
     // A result block can hold several units of one kind (0.1.8 reports: "People also ask" rows with their answers, "What people are saying"
     // post cards and topic rows): each is its own card. Found by structure (siblings of one kind), not read from a live page.
-    // subCards: '.MjjYud', -- off for 0.1.9: on a saved real page an image pack's tiles became units under the page's own overlay (0.1.10).
+    subCards: '.MjjYud',
   },
   // The rules below were written from each site's live page structure (read-only, structure only).
   {
@@ -380,6 +400,8 @@ export const ADAPTERS: Adapter[] = [
     names: '.commentthread_author_link, .forum_op_author',
     main: '.forum_op',
     threadKey: /\/discussions\/\d+\/(\d+)/,
+    // 0.1.8: a covered opening post does not cover the replies after it (one blur, no label of their own): each is judged on its own words, as on X.
+    ownReplies: true,
   },
   {
     name: 'Steam store',
@@ -409,7 +431,7 @@ export const ADAPTERS: Adapter[] = [
     threads: IG_COMMENT,
     replyAreas: 'main ul',
     // An opened post (its own page, or a dialog over the feed or a profile, at the post's address): the one post article. Its comments sit
-    // inside it and are covered with it. The feed and profile pages are not thread pages; a feed behind a post dialog is not the main post.
+    // inside it (from 0.1.8 judged on their own words: ownReplies below). The feed and profile pages are not thread pages; a feed behind a post dialog is not the main post.
     // The live post page (IG_POST) when no dialog holds a post.
     main: `[role="dialog"] article, body:not(:has([role="dialog"] article)) main article, body:not(:has([role="dialog"] :is(article, ${IG_LINK}))) ${IG_POST}`,
     // /p/<id>/ and /reel/<id>/, also under the author's name (/<user>/p/<id>/).
@@ -420,6 +442,9 @@ export const ADAPTERS: Adapter[] = [
     commentsInside: `${IG_COMMENT}, div:has(${IG_LINK}):has(~ div ${IG_LINK}), div:has(${IG_LINK}) ~ div:has(${IG_LINK}), ul > div:has(${IG_LINK}), ul > li:has(${IG_LINK})`,
     // A slide of a post's carousel (feed or opened post): a list entry in the post with no comment link.
     slides: `article ul > li:not(:has(${IG_LINK}))`,
+    // 0.1.8: a covered post does not cover its comments (one blur, no label of their own): its cover is its own content, and each comment is
+    // judged on its own words as a reply of it, with its own cover and label (as on X). See Scanner ownMain.
+    ownReplies: true,
   },
   {
     name: 'Kick',
@@ -451,6 +476,9 @@ export const ADAPTERS: Adapter[] = [
     keepClear: '[data-a-target="video-player"]',
     // Recorded media: a broadcast, a clip, and an embedded player of one (player.twitch.tv/?video=, ?clip=, ?collection=).
     keepClearNot: /^clips\.twitch\.tv|\/videos\/|\/clip\/|[?&](?:video|clip|collection)=/,
+    // A live channel's LIVE pill, viewer count and stream timer (0.1.10 report, logged out: they can come after the player). The saved directory
+    // page has the same pill on every live card, inside its <article> (a card, so it never counts for a player).
+    liveMarks: '.tw-channel-status-text-indicator, [data-a-target="animated-channel-viewers-count"], .live-time',
     chat: true,
     chatLines: '.chat-line__message, [data-a-target="chat-line-message"]',
     // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
@@ -472,11 +500,13 @@ export const ADAPTERS: Adapter[] = [
     viewers: true,
     mediaPostPictures: true,
     replyAreas: `${FB_COMMENT} > div:nth-child(n+2)`,
-    // On a post's own page the comments sit inside the post: when it is covered (or only its picture is), they are covered with it (B-035, as
-    // on Instagram). A comment's block (it holds its replies), and a labelled article with siblings (a reply that is a post box of its own).
+    // On a post's own page the comments sit inside the post (B-035; from 0.1.8 each is judged on its own words as a reply of it, ownReplies
+    // below). A comment's block (it holds its replies), and a labelled article with siblings (a reply that is a post box of its own).
     main: FB_MAIN,
     threadKey: FB_THREAD,
     commentsInside: `${FB_REPLY}, [role="article"][aria-label]:not(:only-child)`,
+    // 0.1.8: as on Instagram, each comment is judged on its own words as a reply of the covered post, with its own cover and label.
+    ownReplies: true,
   },
   {
     name: 'Discord',

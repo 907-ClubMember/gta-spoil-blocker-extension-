@@ -463,7 +463,7 @@ export class Matcher {
 
   /** What a text holds, without deciding anything. Lets a caller judge a whole post or page. */
   inspect(text: string): Found {
-    const full = this.scan(...this.words(text), !SPOILER_LEAD.test(text));
+    const full = this.scan(...this.words(text), !SPOILER_LEAD.test(text) && !TOOL_LEAD.test(text));
     if (!text.includes('@')) return full;
     const bare = text.replace(MENTION, '$1 ');
     if (bare === text) return full;
@@ -823,12 +823,15 @@ function asksNoSpoilers(w: readonly string[], i: number, gameWords: ReadonlySet<
 
 /** Words after "spoiler" that make it the name of a rule: "spoiler policy", "use spoiler flair", "spoiler tags", "spoiler megathread". */
 // Not 'warning': "spoiler warning" is how a spoiler starts.
-const SPOILER_RULE_AFTER = new Set(['policy', 'flair', 'tag', 'tags', 'rules', 'megathread']);
+// ...and a tool against spoilers (0.1.10: a message naming this extension): "spoiler blocker", "spoiler-blocker", "spoiler filter".
+const SPOILER_RULE_AFTER = new Set(['policy', 'flair', 'tag', 'tags', 'rules', 'megathread', 'blocker', 'blockers', 'filter', 'filters']);
 /**
  * "spoiler" with a colon or dash after it, or after "spoiler flair" / "spoiler tag": a spoiler starts there ("Spoiler: ...", "Spoiler
  * flair: ..."). The words lose the colon, so "Spoiler: tag me when ..." would read as "spoiler tag": such a text gets no rule exemption.
  */
 const SPOILER_LEAD = /\bspoilers?(?:[\s-]+(?:flair|tags?))?(?:\s*[:–—]|\s+-\s)/i;
+/** The tool's name used as a lead ("spoiler blocker: ...", "spoiler filter off - ...", "SPOILER BLOCKER!!! ..."): no rule exemption then. */
+const TOOL_LEAD = /\bspoilers?[\s-]+(?:blockers?|filters?)(?:\s+[^\s:–—!]+){0,3}?(?:\s*[:–—!]|\s+-\s)/i;
 
 /**
  * "spoiler" at `i` only names a rule about spoilers ("spoiler policy", "tag it with spoiler flair", "marked as spoiler"), so it is

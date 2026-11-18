@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.10
+
+### Highlights
+
+- Settings: Back up and restore. Save your settings to a file and load them back, and a copy installed from GitHub now keeps its settings when you update it.
+- YouTube: the "Up next" card at the end of a video is covered when the next video is hidden, and autoplay to a hidden video is covered and paused.
+- YouTube: the hover preview no longer plays over a hidden search or home result.
+- Steam, Instagram and Facebook: each comment is judged on its own words, with its own cover and label.
+- Reddit Chats: each message is covered on its own, not the whole window.
+- Pictures you showed in a post stay shown when you open them in the site's full-screen viewer.
+
+### Changes
+
+- **Back up and restore.** Settings has a new Back up and restore section. "Back up settings" saves your choices and lists to a file, never the spoiler list. "Restore from file" checks the file, says how many settings it changes, and applies them only on a second press. A file that is not a settings file is refused with nothing changed. A restore never takes a pause from the file, and the confirm line says so when a file would turn hiding off.
+- **GitHub copies keep their settings.** The zip on GitHub now has a fixed extension ID, so a folder you load unpacked keeps its settings across versions. The Chrome Web Store build is unchanged. How to update has a new line: replace the files in the same folder and press Reload, or back up your settings first.
+- **Comments on Steam, Instagram and Facebook.** Under a hidden post on a Steam Community thread or an opened Instagram or Facebook post, comments are no longer hidden with it. Each is judged on its own words and gets its own cover and label, and a press on a comment's label shows only that comment.
+- **YouTube "Up next".** The card at the end of a video is judged on its own title and channel. Its cover takes the thumbnail, title and channel, so Cancel and Play still work.
+- **YouTube autoplay.** When autoplay moves to a hidden video, that video is covered and paused, even if you had shown the video before it, and even when YouTube changes the video without a page change.
+- **Twitch channel pages.** Only the player is covered, never the channel's name row, buttons or about panels. A live channel is told apart from a past broadcast, so a live player is not covered for its length, and a cover is lifted (with its sound) when the channel turns out to be live.
+- **Reddit Chats.** In new Reddit's Chats window each message is covered on its own, with its own label. The room header, the typing line and the message box are never read, and a sender's name is not a hit by itself.
+- **Pictures near the game's name.** A picture covered for sitting next to the game's name now also makes the replies under it count as replies to a post about the game.
+- **Google.** "People also ask" rows, video rows, post cards and topic rows are each covered on their own again; a picture next to the game inside one covers that row.
+
+### Fixes
+
+#### YouTube
+- Ads are judged on their own words, never on what the page is about.
+
+#### Reddit
+- A new Reddit video that stayed blurred after you pressed show is released, also when you open the post.
+
+#### All sites
+- "spoiler blocker" and "spoiler filter" are no longer spoiler words by themselves.
+- Pictures you showed in the feed stay shown in the site's full-screen viewer, and a full-screen picture's label sits in its middle, not over the viewer's menu.
+- No more "Unchecked runtime.lastError ... back/forward cache" entry on Chrome's extension errors page after going back and forward.
+
 ## 0.1.9
 
 ### Highlights

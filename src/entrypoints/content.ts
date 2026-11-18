@@ -11,6 +11,8 @@ import { isSearchPage, offSelector } from '../adapters/parts';
 import { keepLast } from '../keep-last';
 import { DEBUG_WHY } from '../debug-flag';
 import { BETA } from '../beta-flag';
+import { createCountPort } from '../count-port';
+import { readLastError } from '../last-error';
 import { watchContextMenu } from '../beta/content';
 
 export default defineContentScript({
@@ -110,30 +112,18 @@ export default defineContentScript({
      */
     let shownThreads = new Set<string>();
     let remembering = false;
-    let countPort: chrome.runtime.Port | null = null;
-    const connectCount = () => {
-      try {
-        countPort = chrome.runtime.connect({ name: 'gsb-count' });
-        // The worker was stopped and restarted: connect again and resend, so the popup count is not lost.
-        countPort.onDisconnect.addListener(() => {
-          countPort = null;
-          setTimeout(() => {
-            connectCount();
-            tellCount();
-          }, 500);
-        });
-      } catch {
-        /* extension reloaded */
-      }
-    };
-    const tellCount = () => {
-      try {
-        countPort?.postMessage({ count: scanner?.count ?? 0, groups: scanner?.groups ?? {} });
-      } catch {
-        /* the port closed: the disconnect handler connects again */
-      }
-    };
-    connectCount();
+    // The port to the background that carries the count. A worker restart or the back/forward cache cuts it: lastError is read, the page closes
+    // the port itself when it goes into the cache, and connects again with the count when it comes back (count-port.ts).
+    const countPort = createCountPort({
+      connect: () => chrome.runtime.connect({ name: 'gsb-count' }),
+      payload: () => ({ count: scanner?.count ?? 0, groups: scanner?.groups ?? {} }),
+      readLastError,
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeout: (id) => window.clearTimeout(id as number),
+      addPageListener: (type, fn) => window.addEventListener(type, (e) => fn({ persisted: (e as PageTransitionEvent).persisted })),
+    });
+    const tellCount = countPort.tell;
+    countPort.connect();
     let observer: MutationObserver | null = null;
     let queue = new Set<Node>();
     let timer: number | undefined;
@@ -329,7 +319,7 @@ export default defineContentScript({
         // Discord's GIF video gets its aria-label after it is added: there only, a late label is read too.
         attributeFilter: ['src', 'srcset', 'alt', 'poster', ...(rule?.name === 'Discord' ? ['aria-label'] : []), ...(accounts.size ? ['href'] : [])],
       };
-      const sc = new Scanner(document, matcher, { onShadowRoot: (r) => observer?.observe(r, watchOpts), hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, debugWhy: DEBUG_WHY && s.debugWhy, revealMode: s.revealMode, keepRevealed: keptReveals, shownThreads, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, pictures: pics.values, gifs: site?.gifs, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, cardCap: site?.cardCap, keepParts: site?.keepParts, subCards: site?.subCards, panelSplit: site?.panelSplit, splitCards: site?.splitCards, chat: site?.chat, chatLines: site?.chatLines, threads: site?.threads, replies: site?.replies, thumbs: site?.thumbs, postMaker: site?.postMaker, allowTrailers: s.allowTrailers, allowStores: s.allowStores, primaryPost: site?.primaryPost, picLinks: site?.picLinks, viewers: site?.viewers, mediaPostPictures: site?.mediaPostPictures, coverParts: site?.coverParts, strongOnly: site?.strongOnly, apart: rule?.apart /* kept when the site rule went stale: its parts use stable hooks, not the post cards */, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, threadEnd: site?.threadEnd, names: site?.names, people: site?.people, bio: site?.bio, keepClear: rule?.keepClear, keepClearNot: rule?.keepClearNot, playerLayers: rule?.playerLayers, feeds: rule?.feeds, staleTags: rule?.staleTags, embeds: site?.embeds, searchPath: rule?.searchPath, overCards: rule?.overCards, boxArt: rule?.boxArt, ownReplies: site?.ownReplies, ownRepliesOf: site?.ownRepliesOf, ownThreads: site?.ownThreads, siteChrome: site?.siteChrome, commentsInside: site?.commentsInside, slides: site?.slides, threadCards: site?.threadCards, mainBlock: site?.mainBlock, swallowClicks: site?.swallowClicks, accounts, ownPage: site?.ownPage, coverSource: { strictness: strictnessSource(saved, url, host), ownAccounts: accountKeys({ spoilerAccounts: false, blockedAccounts: s.blockedAccounts }), globalPictures: pics.global } });
+      const sc = new Scanner(document, matcher, { onShadowRoot: (r) => observer?.observe(r, watchOpts), hideMode: s.hideMode, blur: s.blur, showReason: s.showReason, debugWhy: DEBUG_WHY && s.debugWhy, revealMode: s.revealMode, keepRevealed: keptReveals, shownThreads, offParts: offSelector(host, s.parts), pauseVideo: s.pauseVideo, muteAudio: s.muteAudio, pictures: pics.values, gifs: site?.gifs, hideReplies: s.hideReplies, containers: site?.containers, panels: site?.panels, cardCap: site?.cardCap, keepParts: site?.keepParts, subCards: site?.subCards, panelSplit: site?.panelSplit, splitCards: site?.splitCards, chat: site?.chat, chatLines: site?.chatLines, threads: site?.threads, replies: site?.replies, thumbs: site?.thumbs, postMaker: site?.postMaker, allowTrailers: s.allowTrailers, allowStores: s.allowStores, primaryPost: site?.primaryPost, picLinks: site?.picLinks, viewers: site?.viewers, mediaPostPictures: site?.mediaPostPictures, coverParts: site?.coverParts, strongOnly: site?.strongOnly, apart: rule?.apart /* kept when the site rule went stale: its parts use stable hooks, not the post cards */, replyAreas: site?.replyAreas, main: site?.main, threadKey: site?.threadKey, threadEnd: site?.threadEnd, names: site?.names, people: site?.people, bio: site?.bio, keepClear: rule?.keepClear, keepClearNot: rule?.keepClearNot, liveMarks: rule?.liveMarks, playerLayers: rule?.playerLayers, feeds: rule?.feeds, staleTags: rule?.staleTags, embeds: site?.embeds, searchPath: rule?.searchPath, overCards: rule?.overCards, boxArt: rule?.boxArt, ownReplies: site?.ownReplies, ownRepliesOf: site?.ownRepliesOf, ownThreads: site?.ownThreads, siteChrome: site?.siteChrome, commentsInside: site?.commentsInside, slides: site?.slides, threadCards: site?.threadCards, mainBlock: site?.mainBlock, swallowClicks: site?.swallowClicks, accounts, ownPage: site?.ownPage, coverSource: { strictness: strictnessSource(saved, url, host), ownAccounts: accountKeys({ spoilerAccounts: false, blockedAccounts: s.blockedAccounts }), globalPictures: pics.global } });
       scanner = sc;
       // A title swapped before this start (the tab shows our label): the new scan reads the page's own one.
       if (isTop && shownTitle !== null && document.title === shownTitle) sc.setRealTitle(realTitle, shownTitle);

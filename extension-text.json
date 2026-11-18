@@ -479,6 +479,14 @@
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
     ],
+    "v0_1_10": [
+      "Settings: back up and restore your settings, and a copy from GitHub now keeps its settings when you update it.",
+      "YouTube: the \"Up next\" card at the end of a video is covered when the next video is hidden, and autoplay to a hidden video is paused.",
+      "YouTube: the hover preview no longer plays over a hidden result.",
+      "Steam, Instagram and Facebook: each comment is judged on its own words, with its own cover and label.",
+      "Reddit Chats: each message is covered on its own, and a new Reddit video you showed no longer stays blurred.",
+      "Pictures you showed in a post stay shown when you open them full screen."
+    ],
     "v0_1_9": [
       "New Reddit and X: a hidden post keeps its author row and its action buttons in view; only its words and pictures are covered.",
       "New Reddit and Bluesky: each reply under a hidden post is judged on its own words, with its own cover and label.",
@@ -551,6 +559,25 @@
     "clearListsButton": "Clear my lists",
     "clearListsConfirm": "Press again to clear your lists",
     "clearListsDone": "Lists cleared. Your choices are kept.",
+    "backup": {
+      "name": "Back up and restore",
+      "help": "Saves your choices and lists (your own words, words never to hide, accounts, sites, per-site settings) to a file, and puts them back from one. The spoiler list is never in the file.",
+      "button": "Back up settings",
+      "restoreButton": "Restore from file",
+      "changes": "This file changes {count} of your settings. Press Apply to use it.",
+      "noChanges": "This file holds the settings you already have. Nothing to change.",
+      "turnsOff": "Careful: this file turns hiding off.",
+      "apply": "Apply",
+      "applyConfirm": "Press again to apply",
+      "done": "Settings restored from the file.",
+      "problems": {
+        "tooBig": "That file is too big to be a settings file. Nothing was changed.",
+        "notJson": "That file could not be read. Nothing was changed.",
+        "notBackup": "That is not a settings file from this extension. Nothing was changed.",
+        "newer": "That file was saved by a newer version. Update the extension first. Nothing was changed.",
+        "empty": "That file holds no settings. Nothing was changed."
+      }
+    },
     "masterOn": "ON: spoilers are being hidden.",
     "masterOff": "OFF: nothing is being hidden.",
     "masterFinished": "Nothing is hidden: you said you finished the story. You can change that in the settings.",
@@ -632,7 +659,7 @@
       "link": "the releases page on GitHub",
       "step2": "Unzip it over the same folder you loaded before: pick that folder as the destination, or copy the files into it and choose Replace. A different folder is a separate copy that starts with default settings.",
       "step3": "Open chrome://extensions and press Reload on this extension's card, then refresh the pages you have open.",
-      "stay": "Your settings stay as long as you use the same folder."
+      "stay": "To update from GitHub, replace the files in the same folder and press Reload, or back up your settings first (Settings, Back up and restore)."
     },
     "listStale": {
       "builtin": "The spoiler list has not downloaded yet, so only the built-in list is in use.",

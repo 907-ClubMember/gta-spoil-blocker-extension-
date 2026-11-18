@@ -4,6 +4,7 @@
 // the owner's disk, and whoever reads a report describes STRUCTURE only.
 import { BETA_BADGE_COLOR, BETA_BADGE_TEXT, BETA_COMMAND, BETA_MENU_ID, BETA_MENU_TITLE, GET_REPORT_MSG, PICK_DONE_MSG, PICK_END_MSG, PICK_START_MSG, POPUP_PICK_MSG, SNAPSHOT_MSG } from './strings';
 import type { Snapshot } from '../content/report-snapshot';
+import { readLastError } from '../last-error';
 
 export { BETA_MENU_ID };
 
@@ -19,7 +20,7 @@ export const betaMenuItem = (): chrome.contextMenus.CreateProperties => ({ id: B
 
 /** Made last, after every store item. */
 export function registerMenu(): void {
-  chrome.contextMenus.create(betaMenuItem());
+  chrome.contextMenus.create(betaMenuItem(), readLastError);
 }
 
 /** The BETA badge on the icon, with its own colour; the count and OFF badges still take over per tab. */

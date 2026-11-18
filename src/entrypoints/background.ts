@@ -11,6 +11,7 @@ import { isNewerVersion } from '../versions';
 import { isSettingAnchor } from '../reason-settings';
 import { BETA_BADGE_COLOR, BETA_BADGE_TEXT, GET_REPORT_MSG, PICK_DONE_MSG, POPUP_PICK_MSG } from '../beta/strings';
 import { BETA_MENU_ID, answerPickMessage, answerReportRequest, hooks, looksWrong, onCommand, registerMenu, showBetaBadge } from '../beta/background';
+import { readLastError } from '../last-error';
 
 const MENU = HIDE_SELECTION;
 
@@ -36,7 +37,8 @@ export default defineBackground(() => {
     if (details.reason === 'update' && isNewerVersion(to, details.previousVersion)) void chrome.storage.local.set({ whatsNew: { from: details.previousVersion, to } });
     // Cleared first, so an update never trips over the items it made last time.
     chrome.contextMenus.removeAll(() => {
-      for (const m of storeMenuItems()) chrome.contextMenus.create(m);
+      readLastError();
+      for (const m of storeMenuItems()) chrome.contextMenus.create(m, readLastError);
       // The beta item comes last (site-pictures-menu.ts menuItems).
       if (BETA) registerMenu();
       void refreshPics();
@@ -239,6 +241,7 @@ export default defineBackground(() => {
       void showBadge(tabId);
     });
     port.onDisconnect.addListener(() => {
+      readLastError(); // a page going into the back/forward cache cuts its port: expected, so it is read, not left unchecked
       frameCounts.dropFrame(tabId, frameId);
       void showBadge(tabId);
     });

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'wxt';
 import { BETA_COMMAND, BETA_MENU_TITLE, BETA_SHORTCUT } from './src/beta/strings';
+import { manifestKeyFor } from './manifest-key';
 
 const words = JSON.parse(readFileSync('extension-text.json', 'utf8')) as { manifest: { name: string; description: string } };
 
@@ -28,6 +29,9 @@ export default defineConfig({
     // The beta build alone also has the "This looks wrong" shortcut (`commands` needs no permission; the owner can change the key at
     // chrome://extensions/shortcuts). The store manifest has no `commands`.
     'build:manifestGenerated': (_wxt, manifest) => {
+      // The GitHub build's fixed key: the same extension ID in every folder, so settings carry over (none in the store or beta build).
+      const key = manifestKeyFor(process.env);
+      if (key) (manifest as { key?: string }).key = key;
       if (!BETA) return;
       manifest.permissions = [...(manifest.permissions ?? []), 'downloads'];
       manifest.commands = { [BETA_COMMAND]: { suggested_key: { default: BETA_SHORTCUT }, description: BETA_MENU_TITLE } };

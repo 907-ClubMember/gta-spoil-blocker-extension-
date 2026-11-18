@@ -28,7 +28,7 @@ async function main() {
   add('h1', 'This looks wrong');
   add('p', PNG_WARNING);
   const id = new URLSearchParams(location.search).get('id');
-  const r = (await chrome.runtime.sendMessage({ type: GET_REPORT_MSG, id })) as { item?: Pending | null } | undefined;
+  const r = (await chrome.runtime.sendMessage({ type: GET_REPORT_MSG, id }).catch(() => undefined)) as { item?: Pending | null } | undefined;
   const item = r?.item;
   if (!item) return void add('p', 'This report was already opened or is gone (each report opens once). Start This looks wrong again (right-click menu, popup button or shortcut).');
   if (item.screenshot) { const img = add('img'); img.src = item.screenshot; img.alt = 'screenshot of the tab'; img.id = 'shot'; } else add('p', 'No screenshot could be taken.');

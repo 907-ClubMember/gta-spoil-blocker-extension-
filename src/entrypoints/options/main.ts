@@ -15,6 +15,7 @@ import { NEVER_HIDE_REFUSED } from '../../never-hide';
 import { SITE_OFF, attachExamples, noEffectBecause } from './examples';
 import { isSettingAnchor } from '../../reason-settings';
 import { armedButton } from './two-press';
+import { MAX_BACKUP_CHARS, backupName, makeBackup, readBackup } from '../../backup';
 import { sitePartsOffered } from '../../adapters/parts';
 import { KEY_FOLD, PAGE_ANCHOR_TAB, blackoutThumbsNote, drawSummary, scheduleRedraw, type DiffKey, type PageAnchor } from './summary';
 
@@ -81,6 +82,9 @@ const drafts = new Map<string, string>();
 let updateMsg = '';
 /** The line under Reset or Clear my lists after it ran, kept across redraws. */
 let resetDone: '' | 'reset' | 'cleared' = '';
+/** A restore read from a file, waiting for Apply, and the line about it (src/backup.ts). */
+let restorePending: Settings | null = null;
+let restoreMsg = '';
 
 // Changes made elsewhere while this page is open (the popup's pause, the right-click "hide this") show here at once, so a later
 // change here starts from them. A save of this page's own arrives equal to what it already has, and needs no drawing.
@@ -375,6 +379,42 @@ async function render() {
   };
   const resetBtn = armedButton('reset', TEXT.resetButton, TEXT.resetConfirm, wipe(resetChoices, 'reset'));
   const clearBtn = armedButton('clear-lists', TEXT.clearListsButton, TEXT.clearListsConfirm, wipe(clearLists, 'cleared'));
+
+  // Back up and restore: the settings only (choices and lists), never the spoiler list (src/backup.ts). A restore says what it changes
+  // and applies only on a second press.
+  const backupBtn = el('button', { type: 'button', class: 'secondary' }, TEXT.backup.button);
+  backupBtn.dataset.action = 'backup';
+  backupBtn.addEventListener('click', async () => {
+    const url = URL.createObjectURL(new Blob([makeBackup(await loadSettings(), chrome.runtime.getManifest().version)], { type: 'application/json' }));
+    const a = el('a', { href: url });
+    a.download = backupName();
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  });
+  const fileIn = el('input', { type: 'file' });
+  fileIn.accept = '.json,application/json';
+  fileIn.hidden = true;
+  fileIn.dataset.action = 'restore-file';
+  fileIn.addEventListener('change', async () => {
+    const file = fileIn.files?.[0];
+    fileIn.value = '';
+    if (!file) return;
+    const r = readBackup(file.size > MAX_BACKUP_CHARS ? 'x'.repeat(MAX_BACKUP_CHARS + 1) : await file.text(), await loadSettings());
+    restorePending = r.ok && r.changed.length ? r.settings : null;
+    restoreMsg = !r.ok ? TEXT.backup.problems[r.problem] : r.changed.length ? `${TEXT.backup.changes.replace('{count}', String(r.changed.length))}${r.turnsOff ? ` ${TEXT.backup.turnsOff}` : ''}` : TEXT.backup.noChanges;
+    await render();
+  });
+  const restoreBtn = el('button', { type: 'button', class: 'secondary' }, TEXT.backup.restoreButton);
+  restoreBtn.dataset.action = 'restore';
+  restoreBtn.addEventListener('click', () => fileIn.click());
+  const applyBtn = armedButton('restore-apply', TEXT.backup.apply, TEXT.backup.applyConfirm, async () => {
+    if (!restorePending) return;
+    s = restorePending;
+    await saveSettings(s);
+    restorePending = null;
+    restoreMsg = TEXT.backup.done;
+    await render();
+  });
 
   const master = el('input', { type: 'checkbox', checked: s.enabled, class: 'switch', ariaLabel: TEXT.masterToggle });
   master.setAttribute('role', 'switch');
@@ -702,6 +742,8 @@ async function render() {
       section(BLACKOUT_TEXT.name, BLACKOUT_TEXT.help, blackout, ...(blackoutThumbsNote(s) ? [el('p', { class: 'help' }, blackoutThumbsNote(s)!)] : []), ...(s.blackoutDays ? [el('div', { class: 'blackout-start' }, startPick), ...(picking ? [el('div', { class: 'times' }, timeBox(BLACKOUT_TEXT.start, s.blackoutFrom, (v) => ({ blackoutFrom: v })), el('label', {}, BLACKOUT_TEXT.zone, zonePick))] : []), el('p', { class: 'help' }, BLACKOUT_TEXT.startHelp)] : [])),
       section(TEXT.resetName, TEXT.resetHelp, el('div', { class: 'reset-row' }, resetBtn), el('p', { class: 'help' }, TEXT.clearListsHelp), el('div', { class: 'reset-row' }, clearBtn),
         el('p', { class: 'msg reset-msg', role: 'status' }, resetDone === 'reset' ? TEXT.resetDone : resetDone === 'cleared' ? TEXT.clearListsDone : '')),
+      section(TEXT.backup.name, TEXT.backup.help, el('div', { class: 'reset-row' }, backupBtn, restoreBtn, fileIn), ...(restorePending ? [el('div', { class: 'reset-row' }, applyBtn)] : []),
+        el('p', { class: 'msg backup-msg', role: 'status' }, restoreMsg)),
     ),
     panel('Pictures and comments', true,
       section(TEXT.picturesTitle, TEXT.picturesHelp, choiceRow(imgs, TEXT.hideImages.name, TEXT.hideImages.help), mediaRow, check(s.thumbsOnly, TEXT.thumbsOnly.name, TEXT.thumbsOnly.help, (v) => ({ thumbsOnly: v })), el('p', {}, el('b', {}, TEXT.mediaNearGame)), ...radioGroup('mediaNear', TEXT.mediaNearGame, s.mediaNearGame, MEDIA_NEAR_TEXT, (v) => commit({ mediaNearGame: v })), el('p', {}, el('b', {}, TEXT.reactionGifs)), ...radioGroup('reactionGifs', TEXT.reactionGifs, s.reactionGifs, REACTION_GIF_TEXT, (v) => commit({ reactionGifs: v })), el('p', {}, el('b', {}, TEXT.replyGifs)), ...radioGroup('replyGifs', TEXT.replyGifs, s.replyGifs, REPLY_GIF_TEXT, (v) => commit({ replyGifs: v })), el('p', {}, el('b', {}, TEXT.replyPhotos)), ...radioGroup('replyPhotos', TEXT.replyPhotos, s.replyPhotos, REPLY_PHOTO_TEXT, (v) => commit({ replyPhotos: v }))),
