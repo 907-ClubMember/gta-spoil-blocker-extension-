@@ -479,6 +479,10 @@
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
     ],
+    "v0_1_12": [
+      "All sites: content added late to busy pages sometimes showed briefly before being covered; pop-up post viewers (e.g. Instagram) are checked first.",
+      "Pop-up post viewers, such as Instagram's, are checked first."
+    ],
     "v0_1_11": [
       "Instagram: the tiles of a search grid keep their labels, and a post you showed stays shown when you open it.",
       "Instagram: a lone comment under a post is covered on its own, not with the post.",
@@ -655,17 +659,18 @@
     },
     "updateAvailable": {
       "line": "A newer version ({version}) is available.",
-      "store": "Chrome updates the extension by itself, usually within a day. To get it now, open chrome://extensions, turn on Developer mode and press Update.",
       "unpacked": "You loaded this extension from a folder: see How to update below."
     },
     "installedFromGithub": "You installed from GitHub: updates are manual. The popup tells you when a new version is out.",
     "howToUpdate": {
       "button": "How to update",
+      "backup": "Open Settings → {section} → {button}.",
       "step1": "Download the latest zip from {link}: the file ending in -chrome.zip, not \"Source code\".",
       "link": "the releases page on GitHub",
       "step2": "Unzip it over the same folder you loaded before: pick that folder as the destination, or copy the files into it and choose Replace. A different folder is a separate copy that starts with default settings.",
       "step3": "Open chrome://extensions and press Reload on this extension's card, then refresh the pages you have open.",
-      "stay": "To update from GitHub, replace the files in the same folder and press Reload, or back up your settings first (Settings, Back up and restore)."
+      "restore": "If your settings didn't carry over, use {restore}.",
+      "stay": "To update from GitHub, back up your settings first (Settings, {section}), then replace the files in the same folder and press Reload. If your settings didn't carry over, use {restore}."
     },
     "listStale": {
       "builtin": "The spoiler list has not downloaded yet, so only the built-in list is in use.",

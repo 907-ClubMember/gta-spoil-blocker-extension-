@@ -1,13 +1,13 @@
 import '../../ui/style.css';
 import { el, restoreFocus, rememberFocus, twoPress } from '../../ui/dom';
 import { DONATE_URL, MAKER_URL, RELEASES_URL } from '../../donate';
-import { HIDDEN_GROUP_TEXT, PROTECT_TEXT, TEXT } from '../../text';
+import { HIDDEN_GROUP_TEXT, PROTECT_TEXT, TEXT, updateNotice } from '../../text';
 import { DEFAULT_SETTINGS, addPattern, blackoutLine, blackoutOn, blockingStatus, listVerdict, loadSettings, normalizeHost, normalizeSettings, pagePattern, patternChoices, patternLabel, removePattern, samePattern, saveSettings, shortLabel, settingsForUrl, groupDeciding, groupSwitchedOff, sitePicturesChoice, urlMatches, withSitePictures, type Settings, type SitePattern } from '../../settings';
 import { cleanTally, describeTally, type HiddenTally } from '../../hidden';
 import { builtinList, chooseList, loadMeta, savedList } from '../../list/store';
 import { staleNotice } from '../../list/stale';
 import { RELEASE_NOTES } from '../../text';
-import { installKindOf, isNewerVersion, noteToShow, showUpdateSteps } from '../../versions';
+import { installKindOf, isNewerVersion, noteToShow } from '../../versions';
 import { BETA } from '../../beta-flag';
 import { chatNote } from '../../chat-note';
 import { BETA_MENU_TITLE, POPUP_PICK_MSG } from '../../beta/strings';
@@ -90,15 +90,18 @@ async function render() {
   }
   const latest = saved?.latest;
   if (isNewerVersion(latest, version)) {
-    // (A call that throws, or an API that is missing, means the store text.)
+    // (A call that throws, or an API that is missing, counts as a store install: no notice.)
     let installType: string | undefined;
-    try { installType = (await chrome.management?.getSelf?.())?.installType; } catch { /* the store text */ }
-    const kind = installKindOf(installType);
-    body.push(el('p', { class: 'help update', role: 'status' }, TEXT.updateLine(latest!), ' ', TEXT.updateAvailable[kind]));
-    if (showUpdateSteps(kind)) {
-      const [before = '', after = ''] = TEXT.howToUpdate.step1.split('{link}');
+    try { installType = (await chrome.management?.getSelf?.())?.installType; } catch { /* a store install */ }
+    // A store install gets no notice at all: Chrome updates it by itself.
+    const notice = updateNotice(installKindOf(installType), latest!);
+    if (notice) {
+      body.push(el('p', { class: 'help update', role: 'status' }, notice.line));
+      const [download = '', ...rest] = notice.steps.slice(1);
+      const [before = '', after = ''] = download.split('{link}');
       const a = el('a', { href: RELEASES_URL, target: '_blank', rel: 'noreferrer noopener' }, TEXT.howToUpdate.link);
-      const how = el('details', { class: 'how-update', open: updateOpen }, el('summary', {}, TEXT.howToUpdate.button), el('ol', {}, el('li', {}, before, a, after), el('li', {}, TEXT.howToUpdate.step2), el('li', {}, TEXT.howToUpdate.step3)), el('p', { class: 'help' }, TEXT.howToUpdate.stay));
+      const steps = [el('li', {}, notice.steps[0]!), el('li', {}, before, a, after), ...rest.map((t) => el('li', {}, t))];
+      const how = el('details', { class: 'how-update', open: updateOpen }, el('summary', {}, TEXT.howToUpdate.button), el('ol', {}, ...steps), el('p', { class: 'help' }, notice.after));
       how.addEventListener('toggle', () => (updateOpen = how.open));
       body.push(how);
     }

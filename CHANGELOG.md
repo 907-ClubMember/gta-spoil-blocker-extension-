@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.12
+
+### Highlights
+
+- All sites: content added late to busy pages sometimes showed briefly before being covered; pop-up post viewers (e.g. Instagram) are checked first.
+
+### Fixes
+
+#### All sites
+- Fixes content added late to busy pages sometimes showing briefly before being covered; pop-up post viewers (e.g. Instagram) are checked first.
+
 ## 0.1.11
 
 ### Highlights

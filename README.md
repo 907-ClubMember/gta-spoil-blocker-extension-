@@ -18,20 +18,31 @@ This extension watches the community-run GTA wiki, labels new names and details 
 4. Press **Load unpacked** and pick the unzipped folder.
 5. Pin the icon: click the puzzle-piece menu next to the address bar and pin Spoiler Blocker for GTA 6.
 
-### Updating
-
-When a newer version is out, the extension's popup tells you, and its **How to update** button shows these same steps.
-
-1. Download the latest zip from the [releases page](https://github.com/907-ClubMember/gta-spoil-blocker-extension-/releases/latest): the file ending in `-chrome.zip`, not "Source code".
-2. Unzip it **over the same folder you loaded before**: pick that folder as the destination, or copy the files into it and choose Replace. A different folder is a separate copy that starts with default settings.
-3. Open `chrome://extensions` and press **Reload** on the extension's card, then refresh any pages you have open.
-
-Your settings stay as long as you use the same folder. The extension never downloads the new version itself; it only opens the releases page when you press the link.
-
 ### Uninstalling
 
 1. Open `chrome://extensions` and press **Remove** on the extension's card.
 2. If you want, delete the folder you unzipped it into.
+
+## Updating and your settings
+
+When a newer version is out, the extension's popup tells you, and its **How to update** button shows these steps. The extension never downloads the new version itself; it only opens the releases page when you press the link.
+
+**Chrome Web Store version:** Chrome updates the extension by itself, and all your settings stay as they are (sites turned off, "Turn off on this page", strictness, and the rest). Nothing to do.
+
+**GitHub version (installed with Load unpacked):** Chrome doesn't update it for you. To update:
+1. Open the extension's **Settings**, find **Back up and restore**, and press **Back up settings** to save your settings file.
+2. Download the latest zip from the [releases page](https://github.com/907-ClubMember/gta-spoil-blocker-extension-/releases/latest): the file ending in `-chrome.zip`, not "Source code". Unzip it over the same folder you loaded before: pick that folder as the destination, or copy the files into it and choose Replace.
+3. Open `chrome://extensions`, press **Reload** on the extension's card, then refresh any pages you have open. Your settings stay: from version 0.1.10 on, the GitHub build has a fixed extension ID, so they carry over even if you unzip into a different folder. If they don't, open Settings and press **Restore from file**, then choose the backup file (it shows what will change and asks for a second press).
+
+**Updating from 0.1.9 or older:** those versions have no Back up button, and the first update to 0.1.10 or later changes the extension's ID, so that one update starts with default settings. Every update after it keeps them.
+
+**Switching between the GitHub and store versions, or moving to a new computer:** Chrome treats them as separate copies, so move your settings across in four steps (both need version 0.1.10 or later):
+1. In the old one, open Settings, find **Back up and restore**, and press **Back up settings**.
+2. Install the new one.
+3. In the new one, press **Restore from file** and choose the backup file.
+4. Remove the old one on `chrome://extensions`, otherwise both run and pages are covered twice. Back up before removing: uninstalling erases its settings.
+
+**Uninstalling erases your settings,** so back up first if you plan to reinstall.
 
 ## Screenshots
 

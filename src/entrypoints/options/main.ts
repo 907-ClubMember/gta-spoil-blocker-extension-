@@ -731,7 +731,7 @@ async function render() {
     el('p', { class: 'help' }, TEXT.settingsIntro),
     tabs,
     panel('Basics', false,
-      ...(fromGithub ? [el('p', { class: 'help install-note' }, TEXT.installedFromGithub)] : []),
+      ...(fromGithub ? [el('p', { class: 'help install-note' }, TEXT.installedFromGithub, ' ', TEXT.updateStay())] : []),
       masterCard(el('label', { class: 'row master' }, el('span', {}, el('b', {}, TEXT.masterToggle), el('span', { class: 'help' }, blockingStatus(s, Date.now()).text)), master)),
       el('section', { class: 'card' }, choiceRow(timer, TEXT.timer.name, TEXT.timer.help), ...timerBoxes, ...pauseNote),
       section(TEXT.protect.name, TEXT.protect.help, protectButtons, el('p', {}, PROTECT_TEXT[s.protect].help), covers,

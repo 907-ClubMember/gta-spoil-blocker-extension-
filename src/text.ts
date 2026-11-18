@@ -1,6 +1,7 @@
 // Every word the extension shows lives in extension-text.json at the top of the repo, so it can be changed without touching
 // code. This file only hands it out and fills in the {blanks}.
 import words from '../extension-text.json' with { type: 'json' };
+import type { InstallKind } from './versions';
 
 const fill = (text: string, values: Record<string, string | number>): string => text.replace(/\{(\w+)\}/g, (all, k: string) => String(values[k] ?? all));
 
@@ -50,6 +51,8 @@ export const TEXT = {
   listStaleSince: (date: string) => fill(words.text.listStale.since, { date }),
   whatsNewTitle: (version: string) => fill(words.text.whatsNew.title, { version }),
   updateLine: (version: string) => fill(words.text.updateAvailable.line, { version }),
+  /** The options page's note for a folder install: back up first, and restore if the settings did not carry over. */
+  updateStay: () => fill(words.text.howToUpdate.stay, { section: words.text.backup.name, restore: words.text.backup.restoreButton }),
   offOnSite: (site: string) => fill(words.text.offOnSite, { site }),
   updateFailed: (when: string, why: keyof typeof words.text.updates.failedWhy) => fill(words.text.updates.failed, { when, why: words.text.updates.failedWhy[why] }),
   updated: (version: number, added: number) => {
@@ -60,3 +63,16 @@ export const TEXT = {
   updateWait: () => words.text.updates.result.wait,
   updateError: (why: keyof typeof words.text.updates.failedWhy) => fill(words.text.updates.result.error, { why: words.text.updates.failedWhy[why] }),
 };
+
+/** The popup's "newer version" notice. None for a store install: Chrome updates that by itself. For a folder install, the steps
+ *  (the first is the backup, the second keeps its {link} for the popup to fill) and a last line on restoring. */
+export function updateNotice(kind: InstallKind, latest: string): { line: string; steps: string[]; after: string } | null {
+  if (kind === 'store') return null;
+  const h = words.text.howToUpdate;
+  const b = words.text.backup;
+  return {
+    line: `${fill(words.text.updateAvailable.line, { version: latest })} ${words.text.updateAvailable.unpacked}`,
+    steps: [fill(h.backup, { section: b.name, button: b.button }), h.step1, h.step2, h.step3],
+    after: fill(h.restore, { restore: b.restoreButton }),
+  };
+}

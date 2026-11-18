@@ -126,6 +126,11 @@ export default defineContentScript({
     countPort.connect();
     let observer: MutationObserver | null = null;
     let queue = new Set<Node>();
+    /**
+     * Nodes the page added while earlier ones still waited in `queue` (0.1.11), in the order they came. The page watcher reads them in its own
+     * callback, oldest first, for up to FRESH_BUDGET_MS; a pass (drain) reads `queue` first and then what is left of these.
+     */
+    let fresh = new Set<Node>();
     let timer: number | undefined;
     let confirmTimer: number | undefined;
     const CONFIRM_MS = 300;
@@ -146,6 +151,34 @@ export default defineContentScript({
     /** Longest one pass may hold up the page, in milliseconds. */
     const BUDGET_MS = 8;
     const LOADING_BUDGET_MS = 40;
+    /**
+     * Shares while a backlog waits (0.1.11). A page watcher callback that brings at most FRESH_MAX_NODES nodes of the page's own (a few
+     * nodes; our labels do not count) reads `fresh`, oldest first; one that brings a dialog reads that dialog first, whatever came with it.
+     * All callbacks of one task share one slice of FRESH_BUDGET_MS for these reads (given back when the task ends), the page judge not run
+     * there. A bigger burst is not read in the callback (reading it there forced its layout inside the page's own frame: long tasks with
+     * heavy posts); it waits in `fresh`. Each pass (drain) gives its whole budget to the older `queue` first, then to `fresh`, oldest first in
+     * each, so neither starves and no node waits behind one that came later on its side.
+     */
+    const FRESH_BUDGET_MS = 4;
+    const FRESH_MAX_NODES = 8;
+    /** Our own nodes in the page (a cover's bar, its tip and screen-reader text). */
+    const OWN_NODES = '.gsb-bar, .gsb-tip, .gsb-sr';
+    const DIALOGS = '[role="dialog"], dialog, [aria-modal="true"]';
+    /** Only the first nodes of a callback are looked through for a dialog: 400 heavy posts cost 1.9 ms, these at most about 0.15 ms. */
+    const DIALOG_CHECKS = 32;
+    /**
+     * What is left of this task's slice (see FRESH_BUDGET_MS). A message posted when the slice is opened gives it back after the task; so does
+     * SLICE_TASK_MS since it opened (a frame can come before that message: a dialog read in one task, its tiles put in at the next frame).
+     */
+    let sliceLeft = FRESH_BUDGET_MS;
+    let sliceOpen = false;
+    let sliceAt = 0;
+    const SLICE_TASK_MS = 50;
+    const sliceEnd = new MessageChannel();
+    sliceEnd.port1.onmessage = () => {
+      sliceLeft = FRESH_BUDGET_MS;
+      sliceOpen = false;
+    };
 
     // A restart (new list or settings) clears every cover and then waits for storage before scanning again; the browser can draw
     // in between, so hidden posts flashed into view (1-4 frames each hourly list update). Old covers are kept
@@ -205,6 +238,7 @@ export default defineContentScript({
       confirmTimer = undefined;
       lookNow = null;
       queue = new Set();
+      fresh = new Set();
       scanner?.clear();
       scanner = null;
       if (!keepReveals && !remembering) {
@@ -347,6 +381,11 @@ export default defineContentScript({
 
       // New content is checked inside the observer callback, which runs before the browser paints it,
       // so a spoiler is hidden before it is ever shown. Work past the budget is put off so pages stay smooth.
+      /** Reads `n` if it is still in the page. */
+      const read = (n: Node, body: HTMLElement) => {
+        // Inside a shadow root (Reddit's chat) body.contains says no, so the node's own root decides.
+        if (n.isConnected && (n === body || body.contains(n) || (n.getRootNode() as ShadowRoot).host)) sc.scan(n);
+      };
       const drain = () => {
         timer = undefined;
         if (scanner !== sc) return; // a newer start has taken over: this pass belongs to a scan that was cleared
@@ -354,7 +393,6 @@ export default defineContentScript({
           checkAddress(); // single-page sites change address without a reload
           if (scanner !== sc) return; // the answer changed and start() began again: do not touch the old scan
         }
-        const t0 = performance.now();
         const body = document.body;
         if (!body) return;
         // When the title or heading has just shown the page is about the game, the scanner reads everything again
@@ -365,14 +403,21 @@ export default defineContentScript({
         // A page that turned neutral (a single-page site going back to its results) waits for a second look: a quiet page brings no change
         // to drive one, so it is made here, a moment later (a quick turn back to the game still never shows a cover go and come).
         confirmSoon(sc);
-        for (const n of queue) {
-          queue.delete(n);
-          // Inside a shadow root (Reddit's chat) body.contains says no, so the node's own root decides.
-          if (n.isConnected && (n === body || body.contains(n) || (n.getRootNode() as ShadowRoot).host)) sc.scan(n);
-          // While the page is still loading nobody can interact with it yet, so hiding takes priority.
-          if (performance.now() - t0 > (document.readyState === 'loading' ? LOADING_BUDGET_MS : BUDGET_MS)) break;
+        // The budget is for reading nodes, timed after the page judge above (0.1.11: on a page of 6000 posts that took about 5 ms of every
+        // pass, so a busy page's backlog was read a few nodes a pass).
+        const t0 = performance.now();
+        // While the page is still loading nobody can interact with it yet, so hiding takes priority.
+        const budget = document.readyState === 'loading' ? LOADING_BUDGET_MS : BUDGET_MS;
+        let over = false;
+        for (const q of [queue, fresh]) {
+          for (const n of q) {
+            q.delete(n);
+            read(n, body);
+            if ((over = performance.now() - t0 > budget)) break;
+          }
+          if (over) break;
         }
-        if (queue.size) timer = window.setTimeout(drain, 0);
+        if (queue.size || fresh.size) timer = window.setTimeout(drain, 0);
         else tellCount();
         sc.quiet();
         // Reading every cover on a big page costs a few milliseconds: only when one was put on or taken off since last time.
@@ -413,18 +458,71 @@ export default defineContentScript({
       for (const ms of [3000, 10000]) staleTimers.push(window.setTimeout(() => lookLate(true), ms));
 
       observer = new MutationObserver((muts) => {
+        // With nothing waiting, as always: into the queue and read now. While earlier changes still wait (a page still read in pieces, a busy
+        // page), the new nodes go after the other new ones (`fresh`, in the order they came), and after a small change the oldest of those are
+        // read now, ahead of the backlog, before the browser paints them. Behind the backlog they stayed in view for seconds (0.1.11: the tiles
+        // of other posts in an Instagram post dialog, a listed name on them too). See FRESH_BUDGET_MS for the shares.
+        const waiting = timer !== undefined;
+        // The page's own nodes (not our labels: a cover's bar is put in at once and must not start more reads), and among them the dialogs.
+        let added = 0;
+        const dialogs: Element[] = [];
+        const into = (n: Node) => {
+          const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
+          // Our own go with the backlog, as before 0.1.11.
+          if (!waiting || e?.closest(OWN_NODES)) return void queue.add(n);
+          queue.delete(n);
+          fresh.add(n);
+          added++;
+          if (n.nodeType === 1 && added <= DIALOG_CHECKS && (e!.matches(DIALOGS) || e!.querySelector(DIALOGS))) dialogs.push(e!);
+        };
         for (const m of muts) {
-          if (m.type === 'characterData') queue.add(m.target);
+          if (m.type === 'characterData') into(m.target);
           // A reused card (YouTube recycles its tiles) gets a new link address without a new element: spoiler accounts are
           // read from links, so a changed address is checked for those only (watched only while any account is listed).
           else if (m.type === 'attributes') {
             const t = m.target as Element;
             if (m.attributeName === 'href') sc.linkChanged(t);
-            else if (t.matches('img, video')) queue.add(t);
+            else if (t.matches('img, video')) into(t);
           }
-          else m.addedNodes.forEach((n) => queue.add(n));
+          else m.addedNodes.forEach(into);
         }
-        if (timer === undefined) drain();
+        if (!waiting) return drain();
+        const small = added > 0 && added <= FRESH_MAX_NODES;
+        if (sliceOpen && performance.now() - sliceAt > SLICE_TASK_MS) {
+          sliceLeft = FRESH_BUDGET_MS;
+          sliceOpen = false;
+        }
+        if (!fresh.size || (!small && !dialogs.length) || sliceLeft <= 0 || scanner !== sc) return;
+        // The new nodes are read at the page's new address (an opened post), as in a pass.
+        if (isTop && location.href !== seenHref) {
+          checkAddress();
+          if (scanner !== sc) return;
+        }
+        const body = document.body;
+        if (!body) return;
+        // One slice a task for all these reads together: it is given back when the task ends (see sliceEnd).
+        if (!sliceOpen) {
+          sliceOpen = true;
+          sliceAt = performance.now();
+          sliceEnd.port2.postMessage(0);
+        }
+        const t0 = performance.now();
+        const over = () => performance.now() - t0 > sliceLeft;
+        let stop = false;
+        // A dialog first, whatever came with it.
+        for (const d of dialogs) {
+          if (!fresh.delete(d)) continue;
+          read(d, body);
+          if ((stop = over())) break;
+        }
+        if (small && !stop) {
+          for (const n of fresh) {
+            fresh.delete(n);
+            read(n, body);
+            if (over()) break;
+          }
+        }
+        sliceLeft -= performance.now() - t0;
       });
       // The page is still loading at this point, so watch the whole document, not just a body that may not exist yet.
       // Lazy-loaded pictures get their address and description after they are added, so those attributes are watched too,
