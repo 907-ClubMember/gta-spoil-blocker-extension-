@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.13
+
+### Highlights
+
+- Pictures and posts opened inside pop-up viewers (e.g. Instagram) are covered faster on busy pages.
+
+### Fixes
+
+#### All sites
+- Pictures and posts opened inside pop-up viewers (e.g. Instagram) are covered faster on busy pages.
+
 ## 0.1.12
 
 ### Highlights

@@ -479,6 +479,9 @@
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
     ],
+    "v0_1_13": [
+      "Pictures and posts opened inside pop-up viewers (e.g. Instagram) are covered faster on busy pages."
+    ],
     "v0_1_12": [
       "All sites: content added late to busy pages sometimes showed briefly before being covered; pop-up post viewers (e.g. Instagram) are checked first.",
       "Pop-up post viewers, such as Instagram's, are checked first."

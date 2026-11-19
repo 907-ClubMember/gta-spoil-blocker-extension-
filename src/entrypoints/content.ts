@@ -131,6 +131,11 @@ export default defineContentScript({
      * callback, oldest first, for up to FRESH_BUDGET_MS; a pass (drain) reads `queue` first and then what is left of these.
      */
     let fresh = new Set<Node>();
+    /**
+     * Nodes that are, hold or land inside a dialog ([role=dialog], dialog, [aria-modal=true]) while a backlog waits (0.1.13), in the order they
+     * came: read first in the callbacks (the shared slice) and in each pass (for at most a quarter of its budget, so the backlog keeps the rest).
+     */
+    let urgent = new Set<Node>();
     let timer: number | undefined;
     let confirmTimer: number | undefined;
     const CONFIRM_MS = 300;
@@ -153,11 +158,12 @@ export default defineContentScript({
     const LOADING_BUDGET_MS = 40;
     /**
      * Shares while a backlog waits (0.1.11). A page watcher callback that brings at most FRESH_MAX_NODES nodes of the page's own (a few
-     * nodes; our labels do not count) reads `fresh`, oldest first; one that brings a dialog reads that dialog first, whatever came with it.
+     * nodes; our labels do not count) reads `fresh`, oldest first; any callback first reads `urgent` (what is, holds or lands inside a
+     * dialog, 0.1.13), whatever came with it.
      * All callbacks of one task share one slice of FRESH_BUDGET_MS for these reads (given back when the task ends), the page judge not run
      * there. A bigger burst is not read in the callback (reading it there forced its layout inside the page's own frame: long tasks with
-     * heavy posts); it waits in `fresh`. Each pass (drain) gives its whole budget to the older `queue` first, then to `fresh`, oldest first in
-     * each, so neither starves and no node waits behind one that came later on its side.
+     * heavy posts); it waits in `fresh`. Each pass (drain) reads `urgent` for at most a quarter of its budget, then the older `queue`, then `fresh`,
+     * oldest first in each, so none starves and no node waits behind one that came later on its side.
      */
     const FRESH_BUDGET_MS = 4;
     const FRESH_MAX_NODES = 8;
@@ -166,6 +172,8 @@ export default defineContentScript({
     const DIALOGS = '[role="dialog"], dialog, [aria-modal="true"]';
     /** Only the first nodes of a callback are looked through for a dialog: 400 heavy posts cost 1.9 ms, these at most about 0.15 ms. */
     const DIALOG_CHECKS = 32;
+    /** ...and the last nodes of each change (0.1.13: a dialog put in after 40 other nodes in the same callback). */
+    const DIALOG_TAIL = 8;
     /**
      * What is left of this task's slice (see FRESH_BUDGET_MS). A message posted when the slice is opened gives it back after the task; so does
      * SLICE_TASK_MS since it opened (a frame can come before that message: a dialog read in one task, its tiles put in at the next frame).
@@ -239,6 +247,7 @@ export default defineContentScript({
       lookNow = null;
       queue = new Set();
       fresh = new Set();
+      urgent = new Set();
       scanner?.clear();
       scanner = null;
       if (!keepReveals && !remembering) {
@@ -408,16 +417,18 @@ export default defineContentScript({
         const t0 = performance.now();
         // While the page is still loading nobody can interact with it yet, so hiding takes priority.
         const budget = document.readyState === 'loading' ? LOADING_BUDGET_MS : BUDGET_MS;
+        // Dialog nodes left over from the callbacks first, for at most a quarter of the budget (0.1.13), then the backlog, then the rest.
         let over = false;
-        for (const q of [queue, fresh]) {
+        for (const [q, share] of [[urgent, budget / 4], [queue, budget], [fresh, budget]] as const) {
           for (const n of q) {
             q.delete(n);
             read(n, body);
-            if ((over = performance.now() - t0 > budget)) break;
+            const used = performance.now() - t0;
+            if ((over = used > budget) || used > share) break;
           }
           if (over) break;
         }
-        if (queue.size || fresh.size) timer = window.setTimeout(drain, 0);
+        if (urgent.size || queue.size || fresh.size) timer = window.setTimeout(drain, 0);
         else tellCount();
         sc.quiet();
         // Reading every cover on a big page costs a few milliseconds: only when one was put on or taken off since last time.
@@ -463,28 +474,41 @@ export default defineContentScript({
         // read now, ahead of the backlog, before the browser paints them. Behind the backlog they stayed in view for seconds (0.1.11: the tiles
         // of other posts in an Instagram post dialog, a listed name on them too). See FRESH_BUDGET_MS for the shares.
         const waiting = timer !== undefined;
-        // The page's own nodes (not our labels: a cover's bar is put in at once and must not start more reads), and among them the dialogs.
+        // The page's own nodes (not our labels: a cover's bar is put in at once and must not start more reads), and among them what is, holds
+        // or lands inside a dialog (`urgent`, 0.1.13): inside, one look per change at where it landed; is or holds, the first DIALOG_CHECKS
+        // nodes of the callback and the last DIALOG_TAIL of each change.
         let added = 0;
-        const dialogs: Element[] = [];
-        const into = (n: Node) => {
+        const into = (n: Node, inDialog: boolean, tail: boolean) => {
           const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
           // Our own go with the backlog, as before 0.1.11.
           if (!waiting || e?.closest(OWN_NODES)) return void queue.add(n);
           queue.delete(n);
-          fresh.add(n);
           added++;
-          if (n.nodeType === 1 && added <= DIALOG_CHECKS && (e!.matches(DIALOGS) || e!.querySelector(DIALOGS))) dialogs.push(e!);
+          if (inDialog || (n.nodeType === 1 && (added <= DIALOG_CHECKS || tail) && (e!.matches(DIALOGS) || e!.querySelector(DIALOGS)))) {
+            fresh.delete(n);
+            urgent.add(n);
+          } else if (!urgent.has(n)) fresh.add(n);
+        };
+        /** Where a change landed is inside a dialog (looked at only while a backlog waits). */
+        const landsInDialog = (t: Node) => {
+          if (!waiting) return false;
+          const at = t.nodeType === 1 ? (t as Element) : (t.parentElement ?? (t as ShadowRoot).host ?? null);
+          return !!at?.closest(DIALOGS);
         };
         for (const m of muts) {
-          if (m.type === 'characterData') into(m.target);
+          if (m.type === 'characterData') into(m.target, landsInDialog(m.target), false);
           // A reused card (YouTube recycles its tiles) gets a new link address without a new element: spoiler accounts are
           // read from links, so a changed address is checked for those only (watched only while any account is listed).
           else if (m.type === 'attributes') {
             const t = m.target as Element;
             if (m.attributeName === 'href') sc.linkChanged(t);
-            else if (t.matches('img, video')) into(t);
+            else if (t.matches('img, video')) into(t, landsInDialog(t), false);
           }
-          else m.addedNodes.forEach(into);
+          else if (m.addedNodes.length) {
+            const inside = landsInDialog(m.target);
+            const last = m.addedNodes.length - DIALOG_TAIL;
+            m.addedNodes.forEach((n, i) => into(n, inside, i >= last));
+          }
         }
         if (!waiting) return drain();
         const small = added > 0 && added <= FRESH_MAX_NODES;
@@ -492,7 +516,8 @@ export default defineContentScript({
           sliceLeft = FRESH_BUDGET_MS;
           sliceOpen = false;
         }
-        if (!fresh.size || (!small && !dialogs.length) || sliceLeft <= 0 || scanner !== sc) return;
+        if ((!small || !fresh.size) && !urgent.size) return;
+        if (sliceLeft <= 0 || scanner !== sc) return;
         // The new nodes are read at the page's new address (an opened post), as in a pass.
         if (isTop && location.href !== seenHref) {
           checkAddress();
@@ -509,9 +534,9 @@ export default defineContentScript({
         const t0 = performance.now();
         const over = () => performance.now() - t0 > sliceLeft;
         let stop = false;
-        // A dialog first, whatever came with it.
-        for (const d of dialogs) {
-          if (!fresh.delete(d)) continue;
+        // A dialog and what lands in one first, whatever came with them, oldest first.
+        for (const d of urgent) {
+          urgent.delete(d);
           read(d, body);
           if ((stop = over())) break;
         }
