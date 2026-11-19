@@ -2,7 +2,8 @@
 
 ![Logo](public/icon/128.PNG)
 
-[Chrome Web Store](https://chromewebstore.google.com/detail/spoiler-blocker-for-gta-6/lnakhjgajphdppdjakdmbmjjibljejja?authuser=0&hl=en): Currently on version 1.11 [manual install from GitHub below](#manual-installation-guide).
+[Chrome Web Store](https://chromewebstore.google.com/detail/spoiler-blocker-for-gta-6/lnakhjgajphdppdjakdmbmjjibljejja?authuser=0&hl=en): Currently pending 1.13 approval [manual install from GitHub below](#manual-installation-guide).
+
 
 A long time ago there was an extension that blocked spoilers for Star Wars: Episode VII when it came out (before we knew it was bad). I wanted to replicate that but, far as I know that involved someone watching the move and adding the spoilers to the extension to block by hand, adding the spoilers would mean spoiling myself first.
 
