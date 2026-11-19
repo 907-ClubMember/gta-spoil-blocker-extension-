@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+import { DEFAULT_SETTINGS, blockingStatus, normalizeSettings, timeOf, type Settings } from './settings';
 
 /** A settings backup file: these marks, the version that wrote it, and the settings object. Never the spoiler list. */
 export const BACKUP_APP = 'spoiler-blocker-settings';
@@ -27,7 +27,7 @@ export type Restore = { ok: true; settings: Settings; changed: (keyof Settings)[
  * A backup file read for restoring: checked to be one of ours, the settings in it put through the same checks as stored settings (unknown
  * keys and wrong values are dropped, as when settings are loaded), and the settings it would change. Nothing is applied here.
  */
-export function readBackup(text: string, current: Settings): Restore {
+export function readBackup(text: string, current: Settings, now = Date.now()): Restore {
   if (text.length > MAX_BACKUP_CHARS) return { ok: false, problem: 'tooBig' };
   let raw: unknown;
   try {
@@ -44,11 +44,17 @@ export function readBackup(text: string, current: Settings): Restore {
   // At least one setting it knows: an object of strangers restores nothing.
   if (!Object.keys(inner).some((k) => Object.hasOwn(DEFAULT_SETTINGS, k))) return { ok: false, problem: 'empty' };
   if (Object.values(inner).some((v) => Array.isArray(v) && v.length > MAX_LIST_ENTRIES)) return { ok: false, problem: 'tooBig' };
-  const now = normalizeSettings(current);
+  const at = now;
+  const now0 = normalizeSettings(current);
   // A pause belongs to the moment it was set: never taken from a file (an old or shared file could pause hiding for years).
-  const settings = { ...normalizeSettings(inner), pausedUntil: now.pausedUntil };
-  const changed = (Object.keys(settings) as (keyof Settings)[]).filter((k) => JSON.stringify(settings[k]) !== JSON.stringify(now[k]));
-  const today = new Date().toISOString().slice(0, 10);
-  const turnsOff = (!settings.enabled && now.enabled) || (settings.storyFinished && !now.storyFinished) || (!!settings.endDate && !settings.timerOff && settings.endDate.slice(0, 10) <= today && settings.endDate !== now.endDate);
+  const settings = { ...normalizeSettings(inner), pausedUntil: now0.pausedUntil };
+  const changed = (Object.keys(settings) as (keyof Settings)[]).filter((k) => JSON.stringify(settings[k]) !== JSON.stringify(now0[k]));
+  // Hiding is on now and would be off after the restore (off, finished, a start still to come, an end already past, the timer back on),
+  // by the same test as the on/off line (0.1.11 audit: a date-only test missed a future start and a timer flip and was off by a day east of UTC).
+  // Set aside what passes by itself (a pause, a start still to come): looked at once hiding would be on, a file that switches it off for
+  // good (off, the story finished) or ends it before then is still warned about (review: paused now, nothing was said).
+  const t = !now0.timerOff && now0.startDate && timeOf(now0.startDate) > at ? timeOf(now0.startDate) : at;
+  const turnsOff = (now0.enabled && !settings.enabled) || (!now0.storyFinished && settings.storyFinished)
+    || (blockingStatus({ ...now0, pausedUntil: 0 }, t).on && !blockingStatus({ ...settings, pausedUntil: 0 }, t).on);
   return { ok: true, settings, changed, turnsOff };
 }

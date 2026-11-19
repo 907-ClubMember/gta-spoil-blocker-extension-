@@ -52,6 +52,8 @@ export function offSelector(host: string, on: Record<PagePart, boolean>): string
   const out: string[] = [];
   for (const part of PAGE_PARTS) {
     if (on[part]) continue;
+    // A switch the site's card does not offer does nothing there, whatever is saved (an old value, or the all-sites row).
+    if (!sitePartsOffered(host).includes(part)) continue;
     if (GENERIC[part]) out.push(GENERIC[part]);
     for (const s of SITE) if (s.parts[part] && hostMatches(host, s.hosts)) out.push(s.parts[part]!);
   }

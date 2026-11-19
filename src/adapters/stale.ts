@@ -25,15 +25,45 @@ export const GIANT_POST_CHARS = 8000;
  */
 export function staleRule(site: Pick<Adapter, 'containers'> | null, doc: Document): 'none' | 'giant' | null {
   if (!site?.containers) return null;
-  let cards: Element[];
   try {
-    cards = [...doc.querySelectorAll(site.containers)];
+    doc.createDocumentFragment().querySelector(site.containers); // checks the whole list without matching anything
   } catch {
     return 'none'; // a selector the browser no longer accepts reads like a rule that matches nothing
   }
   const posts = postLikeCount(doc);
   if (posts < 5) return null;
-  if (cards.length === 0) return 'none';
-  if (cards.length <= 2 && cards.some((c) => (c.textContent ?? '').length > GIANT_POST_CHARS)) return 'giant';
+  // Only "none", "one or two" or "three or more" matter: the rule is looked at one selector at a time, as written, and stops at the third
+  // card (0.1.15: Instagram's comment selectors, siblings with :has, held one task about 1 s on a feed of 6000 posts, at 3 s and 10 s).
+  const cards = firstCards(doc, site.containers, 3);
+  if (cards.size === 0) return 'none';
+  if (cards.size <= 2 && [...cards].some((c) => (c.textContent ?? '').length > GIANT_POST_CHARS)) return 'giant';
   return null;
+}
+
+/** The elements matching a selector list, one selector of the list at a time, until `enough` are found. */
+export function firstCards(doc: Document, list: string, enough: number): Set<Element> {
+  const found = new Set<Element>();
+  for (const sel of splitSelectors(list)) {
+    for (const e of doc.querySelectorAll(sel)) found.add(e);
+    if (found.size >= enough) break;
+  }
+  return found;
+}
+
+/** A selector list split at its top-level commas (not those inside brackets, parentheses or quotes). */
+export function splitSelectors(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = '';
+  let from = 0;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]!;
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; continue; }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (c === ',' && depth === 0) { out.push(list.slice(from, i).trim()); from = i + 1; }
+  }
+  out.push(list.slice(from).trim());
+  return out.filter(Boolean);
 }

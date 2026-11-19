@@ -3,7 +3,7 @@
 import { chatNoteAll } from '../../chat-note';
 import { el } from '../../ui/dom';
 import { BLACKOUT_TEXT, BLUR_TEXT, HIDE_MODE_TEXT, KIND_MODE_TEXT, MEDIA_NEAR_TEXT, PRESET_TEXT, PROTECT_TEXT, RARE_TEXT, REACTION_GIF_TEXT, REPLIES_TEXT, REPLY_GIF_TEXT, REPLY_PHOTO_TEXT, REVEAL_TEXT, STRICTNESS_TEXT, TEXT, UPDATE_TEXT } from '../../text';
-import { DEFAULT_SETTINGS, SITE_PICTURE_FIELDS, blackoutLine, blockingStatus, timeOf, type Settings, type SiteOverride } from '../../settings';
+import { DEFAULT_SETTINGS, SITE_PICTURE_FIELDS, blackoutLine, blackoutOn, blockingStatus, timeOf, type Settings, type SiteOverride } from '../../settings';
 import { ANCHOR_TAB, type SettingAnchor } from '../../reason-settings';
 import { noEffectBecause, type NoEffectReason } from './examples';
 
@@ -179,7 +179,9 @@ export function buildSummary(s: Settings, now: number, release?: string): Summar
     // Pictures on game pages only: say plainly that mixed feeds stay as they are.
     const note = k === 'hideMediaPosts' ? noEffect[0]?.text : k === 'thumbsOnly' && s.thumbsOnly ? (s.blackoutDays ? S.thumbsBlackoutNote : S.thumbsNote) : k === 'mediaNearGame' && s.mediaNearGame === 'page' ? S.mediaPageNote : undefined;
     // No "(default)" here: "Differs from default" says what changed.
-    return { key: k, text: `${S.labels[k]}: ${valueName(k, s[k], false)}`, ...(note ? { note } : {}) };
+    // In the blackout "pictures only" covers pictures even with pictures off (picturesFor): the row says what is in force.
+    const v = k === 'hideImages' && s.thumbsOnly && !s.hideImages && blackoutOn(s, release, now) ? true : s[k];
+    return { key: k, text: `${S.labels[k]}: ${valueName(k, v, false)}`, ...(note ? { note } : {}) };
   });
   const differs = differsFromDefault(s);
   const short = [many(differs.length, S.differCount), ...(noEffect.length ? [many(noEffect.length, S.noEffectCount)] : []), ...(paused ? [S.pausedShort] : [])].join(' · ');

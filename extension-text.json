@@ -66,7 +66,7 @@
     },
     "blackout": {
       "name": "Total blackout",
-      "help": "Removes any post with a name you chose to hide, GTA 6 mentioned or not, with no label. Pick Everything under What to hide as well to see as little as possible.",
+      "help": "Removes any post with a name you chose to hide, GTA 6 mentioned or not, with no label of its own (where a whole area is emptied, one thin line says how many). Pick Everything under What to hide as well to see as little as possible.",
       "pictures": "Pictures: as in Careful, but removed instead of blurred, and reply GIFs and photos always go too."
     },
     "custom": {
@@ -331,7 +331,7 @@
   "replies": {
     "all": {
       "name": "Hide the replies under it too",
-      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X, Reddit and Bluesky, each reply is always checked on its own."
+      "help": "Replies to a spoiler usually repeat it, so the whole chain goes behind one label. One click shows them all. On X, Reddit, Bluesky, Steam Community, Instagram and Facebook, each reply is always checked on its own."
     },
     "own": {
       "name": "Hide only that comment",
@@ -479,12 +479,17 @@
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
     ],
+    "v0_1_14": [
+      "Settings changed in another tab now apply when you come back to a tab that was in the background or that you return to with Back.",
+      "Google: fewer search results are covered just because another row nearby names the game, and the \"removed N here\" line in Remove mode now shows there.",
+      "Big feeds with thousands of posts no longer freeze for about a second at 3 and 10 seconds after loading.",
+      "Settings: a page-part switch a site does not offer no longer acts on that site, and the replies and Total blackout help are clearer."
+    ],
     "v0_1_13": [
       "Pictures and posts opened inside pop-up viewers (e.g. Instagram) are covered faster on busy pages."
     ],
     "v0_1_12": [
-      "All sites: content added late to busy pages sometimes showed briefly before being covered; pop-up post viewers (e.g. Instagram) are checked first.",
-      "Pop-up post viewers, such as Instagram's, are checked first."
+      "All sites: content added late to busy pages sometimes showed briefly before being covered; pop-up post viewers, such as Instagram's, are now checked first."
     ],
     "v0_1_11": [
       "Instagram: the tiles of a search grid keep their labels, and a post you showed stays shown when you open it.",

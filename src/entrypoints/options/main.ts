@@ -82,8 +82,11 @@ const drafts = new Map<string, string>();
 let updateMsg = '';
 /** The line under Reset or Clear my lists after it ran, kept across redraws. */
 let resetDone: '' | 'reset' | 'cleared' = '';
-/** A restore read from a file, waiting for Apply, and the line about it (src/backup.ts). */
-let restorePending: Settings | null = null;
+/**
+ * A restore file read and waiting for Apply (its text), and the line about it (src/backup.ts). Apply reads the file again against the
+ * settings as they are then, so a change made meanwhile (a pause ended in the popup) is not undone (0.1.11 audit).
+ */
+let restorePending: string | null = null;
 let restoreMsg = '';
 
 // Changes made elsewhere while this page is open (the popup's pause, the right-click "hide this") show here at once, so a later
@@ -399,8 +402,9 @@ async function render() {
     const file = fileIn.files?.[0];
     fileIn.value = '';
     if (!file) return;
-    const r = readBackup(file.size > MAX_BACKUP_CHARS ? 'x'.repeat(MAX_BACKUP_CHARS + 1) : await file.text(), await loadSettings());
-    restorePending = r.ok && r.changed.length ? r.settings : null;
+    const text = file.size > MAX_BACKUP_CHARS ? 'x'.repeat(MAX_BACKUP_CHARS + 1) : await file.text();
+    const r = readBackup(text, await loadSettings());
+    restorePending = r.ok && r.changed.length ? text : null;
     restoreMsg = !r.ok ? TEXT.backup.problems[r.problem] : r.changed.length ? `${TEXT.backup.changes.replace('{count}', String(r.changed.length))}${r.turnsOff ? ` ${TEXT.backup.turnsOff}` : ''}` : TEXT.backup.noChanges;
     await render();
   });
@@ -409,9 +413,14 @@ async function render() {
   restoreBtn.addEventListener('click', () => fileIn.click());
   const applyBtn = armedButton('restore-apply', TEXT.backup.apply, TEXT.backup.applyConfirm, async () => {
     if (!restorePending) return;
-    s = restorePending;
-    await saveSettings(s);
+    const r = readBackup(restorePending, await loadSettings());
     restorePending = null;
+    if (!r.ok) {
+      restoreMsg = TEXT.backup.problems[r.problem];
+      return void (await render());
+    }
+    s = r.settings;
+    await saveSettings(s);
     restoreMsg = TEXT.backup.done;
     await render();
   });

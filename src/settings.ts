@@ -223,7 +223,7 @@ export const UPDATE_MINUTES: Record<UpdateEvery, number | null> = {
 
 /** Fill gaps and drop junk so a damaged or older saved value never breaks the extension. */
 export function normalizeSettings(raw: unknown): Settings {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const r = withPresetKeys((raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>);
   const d = DEFAULT_SETTINGS;
   const oneOf = <T extends string>(v: unknown, ok: readonly T[], fallback: T): T =>
     ok.includes(v as T) ? (v as T) : fallback;
@@ -254,7 +254,7 @@ export function normalizeSettings(raw: unknown): Settings {
     if (v && typeof v === 'object' && !Array.isArray(v)) siteGroups[g] = normalizeSite(v as Record<string, unknown>);
   }
 
-  return {
+  const out: Settings = {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : d.enabled,
     strictness: oneOf(r.strictness, ['light', 'medium', 'strict'] as const, d.strictness),
     hideMode: oneOf(r.hideMode, ['blur', 'collapse', 'remove'] as const, d.hideMode),
@@ -307,6 +307,7 @@ export function normalizeSettings(raw: unknown): Settings {
     storyFinished: typeof r.storyFinished === 'boolean' ? r.storyFinished : d.storyFinished,
     showBadge: typeof r.showBadge === 'boolean' ? r.showBadge : d.showBadge,
   };
+  return presetMatching(out);
 }
 
 const KIND_MODES = ['off', 'mention', 'always'] as const;
@@ -518,6 +519,13 @@ export function picturesFor(saved: Settings, url: string, host?: string, at: { b
     (values as Record<string, unknown>)[f] = v;
     fromSite.add(f);
   }
+  // In the blackout, "pictures only" covers pictures even with "Also hide pictures" off: it never covers words, and the blackout's note says
+  // it covers pictures (0.1.11 audit: the two together covered nothing).
+  if (at.blackout && values.thumbsOnly && !values.hideImages) {
+    values.hideImages = true;
+    fromSite.delete('hideImages');
+  }
+  if (at.blackout && global.thumbsOnly && !global.hideImages) global.hideImages = true;
   return { values, fromSite, global };
 }
 
@@ -751,6 +759,23 @@ export function resetChoices(s: Settings): Settings {
 /** The lists back to how they came (hint words to the built-in ones), every choice kept. */
 export function clearLists(s: Settings): Settings {
   return normalizeSettings({ ...structuredClone(s), ...listsOf(DEFAULT_SETTINGS) });
+}
+
+/**
+ * A named preset whose values differ from what it sets is "Custom" (0.1.11 audit: since 0.1.8 Casual and Careful set the GIF choices too,
+ * so a GIF choice set by hand before then left a preset selected that its values no longer match). Covers updates, storage and restores.
+ */
+/** A named preset saved before some of its keys existed: the missing ones take that preset's values (not the defaults'), so it keeps its name. */
+function withPresetKeys(r: Record<string, unknown>): Record<string, unknown> {
+  const name = r.preset;
+  if (name !== 'casual' && name !== 'careful' && name !== 'blackout') return r;
+  return { ...PRESETS[name], ...r };
+}
+
+function presetMatching(s: Settings): Settings {
+  if (s.preset === 'custom') return s;
+  const p = PRESETS[s.preset];
+  return Object.entries(p).every(([k, v]) => JSON.stringify(s[k as keyof Settings]) === JSON.stringify(v)) ? s : { ...s, preset: 'custom' };
 }
 
 /** Every key some preset sets: changing one of these by hand turns a named preset into "Custom". */
@@ -1028,6 +1053,14 @@ export async function loadSettings(): Promise<Settings> {
   } catch {
     return DEFAULT_SETTINGS;
   }
+}
+
+/**
+ * Do the settings saved now differ from the ones a page started with? A tab frozen (back/forward cache, a background tab) can miss a change
+ * made meanwhile (a stricter choice, the blackout, a restore); shown again, it compares and starts again (0.1.11 audit).
+ */
+export function settingsChangedSince(started: Settings | undefined, now: Settings): boolean {
+  return !started || JSON.stringify(normalizeSettings(started)) !== JSON.stringify(normalizeSettings(now));
 }
 
 export async function saveSettings(s: Settings): Promise<void> {

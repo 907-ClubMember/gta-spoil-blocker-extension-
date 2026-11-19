@@ -23,6 +23,9 @@ export function topUnits(root: Element, units: string): Element[] {
   });
 }
 
+/** Page furniture: a unit in one of these is no sibling in a list of results. */
+const FURNITURE = 'nav, [role="navigation"], header, aside, [role="complementary"]';
+
 /**
  * Finds the areas of removed posts for one pass. Each block's posts are searched once per pass (`queries` counts the searches), so a pass
  * over many removed posts of one feed costs a few searches, not one per post and block (0.1.10 review: a 400-post feed stalled).
@@ -54,7 +57,8 @@ export class AreaFinder {
     }
     if (best.units.length < 2) return null;
     // A shown post of the same kind (tag) in the block above: the removed ones are part of a bigger list, not an area of their own.
-    if (above && this.top(above).some((u) => !this.removed(u) && u.tagName === unit.tagName)) return null;
+    // Page furniture is no sibling in the list: a tab in navigation or a card in a side panel (0.1.11 audit: Google's tabs kept the line away).
+    if (above && this.top(above).some((u) => !this.removed(u) && u.tagName === unit.tagName && !u.closest(FURNITURE))) return null;
     return best;
   }
 }

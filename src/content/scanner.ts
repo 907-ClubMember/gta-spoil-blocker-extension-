@@ -1659,15 +1659,15 @@ export class Scanner {
     return el.classList.contains('gsb-bar') || !!el.closest('.gsb-tip, .gsb-change');
   }
 
-  private unseenText(post: Element, basicOnly = false): string {
+  private unseenText(post: Element, basicOnly = false, leave?: (el: Element) => boolean): string {
     let out = '';
     const els = post.querySelectorAll('img[alt], [aria-label], a[href*="hashtag"], a[href*="/search"], a[href*="/tag/"]');
     const cards = this.opts.containers;
     const nested = !!cards && post.matches(cards) && !!post.querySelector(cards);
     for (let i = 0; i < els.length && i < 60 && out.length < 1500; i++) {
       const el = els[i]!;
-      // Our own eye button's words are not the post's.
-      if (isEmote(el) || this.isOff(el) || this.ownUi(el)) continue;
+      // Our own eye button's words are not the post's (nor, with `leave`, what the caller reads apart: blockTies).
+      if (isEmote(el) || this.isOff(el) || this.ownUi(el) || leave?.(el)) continue;
       // Leave out what belongs to a reply nested inside this post.
       if (nested && el.closest(cards!) !== post) continue;
       out += ` ${el.getAttribute('alt') ?? ''} ${el.getAttribute('aria-label') ?? ''}`;
@@ -1681,7 +1681,7 @@ export class Scanner {
     const more = post.querySelectorAll('a[href], img[title]');
     for (let i = 0, n = 0; i < more.length && i < 200 && n < 40 && out.length < 2000; i++) {
       const el = more[i]!;
-      if (this.isOff(el) || this.ownUi(el) || (nested && el.closest(cards!) !== post)) continue;
+      if (this.isOff(el) || this.ownUi(el) || (nested && el.closest(cards!) !== post) || leave?.(el)) continue;
       const title = el.getAttribute('title') ?? '';
       const path = el.tagName === 'A' ? linkPath(el.getAttribute('href') ?? '') : '';
       if (!title && !path) continue;
@@ -1813,7 +1813,11 @@ export class Scanner {
     const wide = this.wideUnit(post);
     if (wide !== post && wide.contains(post)) {
       const cs = this.opts.containers;
-      if (this.matcher.inspect(`${cs && wide.matches(cs) ? this.ownText(wide, cs) : this.textOf(wide, POST_READ_CHARS)} ${this.unseenText(wide)}`).context) return true;
+      // 0.1.14 (audit 8): a unit of a block of units (Adapter.subCards) is read with the block's words outside its units (its heading), not
+      // with its neighbours' words: a row naming the game made a weak name in the next row count. A neighbour that ties a listed name to the
+      // game still counts (blockTies).
+      const unit = cs && wide.matches(cs) && this.hasUnits(wide) ? this.unitIn(wide, post) : null;
+      if (unit ? this.blockTies(wide, unit) : this.matcher.inspect(`${cs && wide.matches(cs) ? this.ownText(wide, cs) : this.textOf(wide, POST_READ_CHARS)} ${this.unseenText(wide)}`).context) return true;
     }
     const sel = this.opts.containers ?? POST_SELECTOR;
     // With no site rule, a paragraph inside an article is not a reply to it: only a post nested inside another post is (a comment
@@ -4599,6 +4603,28 @@ export class Scanner {
     let unit: Element | null = null;
     for (let a: Element | null = el; a && a !== wrapper; a = a.parentElement) if (this.isUnit(a, strict)) unit = a;
     return unit;
+  }
+
+  /**
+   * 0.1.14 (audit 8): does a block of units tie `unit` to the game? Its words outside its units (its heading, picture descriptions there)
+   * name the game, or another unit in it names the game beside a listed name ("Who is <name> in GAME?" above "Does <name> die?"). A
+   * neighbour that names the game with no listed name ("When does GAME come out?") does not: each unit is judged on its own words.
+   */
+  private blockTies(block: Element, unit: Element): boolean {
+    const inUnit = (el: Element) => !!this.unitBelow(block, el, true);
+    if (this.matcher.inspect(`${this.outsideUnits(block)} ${this.unseenText(block, false, inUnit)}`).context) return true;
+    const units: Element[] = [];
+    const all = block.getElementsByTagName('*');
+    for (let i = 0; i < all.length && i < 2000; i++) {
+      const u = all[i]!;
+      if (!units.some((x) => x.contains(u)) && this.isUnit(u, true)) units.push(u);
+    }
+    for (const u of units) {
+      if (u === unit || u.contains(unit) || unit.contains(u)) continue;
+      const f = this.matcher.inspect(`${this.textOf(u, POST_READ_CHARS)} ${this.unseenText(u)}`);
+      if (f.context && (f.strong.size || f.weak.size)) return true;
+    }
+    return false;
   }
 
   /** The words of `wrapper` outside its units (its heading, its own lines). */

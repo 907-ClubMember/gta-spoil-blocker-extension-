@@ -6,9 +6,9 @@ import { CATEGORIES, type SpoilerList } from '../types';
 import { shapeTerms } from '../levels';
 import { adapterFor } from '../adapters';
 import { staleRule } from '../adapters/stale';
-import { BLACKOUT_WORDS, timerNextChange, addressChange, blackoutNextChange, blackoutOn, isSuspended, listVerdict, loadSettings, picturesFor, settingsForUrl, siteDecisionKey, strictnessSource, type ListVerdict, type Settings } from '../settings';
+import { BLACKOUT_WORDS, timerNextChange, addressChange, blackoutNextChange, blackoutOn, isSuspended, listVerdict, loadSettings, picturesFor, settingsChangedSince, settingsForUrl, siteDecisionKey, strictnessSource, type ListVerdict, type Settings } from '../settings';
 import { isSearchPage, offSelector } from '../adapters/parts';
-import { keepLast } from '../keep-last';
+import { extensionAlive, keepLast } from '../keep-last';
 import { DEBUG_WHY } from '../debug-flag';
 import { BETA } from '../beta-flag';
 import { createCountPort } from '../count-port';
@@ -605,11 +605,22 @@ export default defineContentScript({
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === 'local' && (changes.settings || changes.list)) void start(!changes.settings, !!changes.settings);
       });
-      // A tab frozen (back/forward cache) or in the background can miss a Resume or the wake timer and stay unprotected.
-      // Shown again while not hiding, it looks again; a running scan is left as it is.
-      const shown = () => { if (!scanner) void start(); };
-      window.addEventListener('pageshow', (e: PageTransitionEvent) => { if (e.persisted) shown(); });
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') shown(); });
+      // A tab frozen (back/forward cache) or in the background can miss a Resume, the wake timer or a settings change (a stricter choice,
+      // the blackout, a restore) and stay unprotected. Shown again while not hiding, it looks again; a running scan starts again only if
+      // the saved settings are not the ones it started with.
+      const shown = async () => {
+        if (!scanner) return void start();
+        // A tab cut off by an update keeps what it has: reading from it would answer with the defaults, and a restart would drop what
+        // the person revealed (review of the first version).
+        if (!extensionAlive()) return;
+        try {
+          if (settingsChangedSince(lastSaved, await keptSettings())) void start(false, true);
+        } catch {
+          /* cut off while reading: nothing to compare */
+        }
+      };
+      window.addEventListener('pageshow', (e: PageTransitionEvent) => { if (e.persisted) void shown(); });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void shown(); });
     };
 
     // A frame with no address of its own is often an empty ad slot: it starts only once it holds something to read.

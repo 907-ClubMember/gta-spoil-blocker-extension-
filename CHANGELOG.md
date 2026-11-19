@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.14
+
+### Highlights
+
+- Settings changed in another tab now apply when you come back to a tab that was in the background.
+- Google: fewer search results covered just because another row nearby names the game.
+- Big feeds with thousands of posts no longer freeze for about a second after loading.
+
+### Fixes
+
+#### All sites
+- Settings changed in another tab now apply when you come back to a tab that was in the background or that you return to with Back.
+- Big feeds with thousands of posts no longer freeze for about a second at 3 and 10 seconds after loading.
+
+#### Google
+- Fewer search results are covered just because another row nearby names the game.
+- In Remove mode, the "removed N here" line now shows; tabs and side panels no longer hide it.
+
+#### Settings
+- A page-part switch (such as comments) that a site does not offer no longer does anything on that site.
+- The help for hiding replies names the six sites where each reply is checked on its own: X, Reddit, Bluesky, Steam Community, Instagram and Facebook.
+- The Total blackout help mentions the thin line Remove mode leaves where a whole area is emptied.
+
 ## 0.1.13
 
 ### Highlights
