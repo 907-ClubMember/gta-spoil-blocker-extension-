@@ -2,7 +2,7 @@
 
 ![Logo](public/icon/128.PNG)
 
-[Chrome Web Store](https://chromewebstore.google.com/detail/spoiler-blocker-for-gta-6/lnakhjgajphdppdjakdmbmjjibljejja?authuser=0&hl=en): Currently 1.14 approval [manual install from GitHub below](#manual-installation-guide).
+[Chrome Web Store](https://chromewebstore.google.com/detail/spoiler-blocker-for-gta-6/lnakhjgajphdppdjakdmbmjjibljejja?authuser=0&hl=en): Currently 1.15 should be approved soon [manual install from GitHub below](#manual-installation-guide).
 
 
 A long time ago there was an extension that blocked spoilers for Star Wars: Episode VII when it came out (before we knew it was bad). I wanted to replicate that but, far as I know that involved someone watching the move and adding the spoilers to the extension to block by hand, adding the spoilers would mean spoiling myself first.
@@ -100,6 +100,8 @@ Made heavily with AI, with hand-checking against earlier games to correct classi
 ## Credits
 
 Thanks to the volunteer editors of GTA Wiki, whose work the list is built on (text under CC BY-SA). If this saved your playthrough, consider donating or contributing to them.
+
+Also to my girlfriend who acts as a fail safe if the automatic classification fails 
 
 [GTA Wiki: donate](https://x.com/GTAWikiOfficial/status/2102401945772159220?a=hBmgLIC5wehSHM5Cu1s&s=20)
 [GTA Wiki: how to help](https://gta.wiki/w/GTA_Wiki:How_to_Help)
