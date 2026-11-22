@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.15
+
+### Highlights
+
+- Text that's on screen but further down the page (sidebars, side panels, footers) is now covered within a fraction of a second.
+
+### Fixes
+
+#### All sites
+- Text that's on screen but further down the page (sidebars, side panels, footers) is now covered within a fraction of a second.
+
 ## 0.1.14
 
 ### Highlights

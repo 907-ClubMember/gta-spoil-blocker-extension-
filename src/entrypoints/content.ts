@@ -14,6 +14,7 @@ import { BETA } from '../beta-flag';
 import { createCountPort } from '../count-port';
 import { readLastError } from '../last-error';
 import { watchContextMenu } from '../beta/content';
+import { BIG_READ, CLAIM_MAX, CLAIM_MAX_END, claimFor, EndFirst } from '../content/end-first';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -136,6 +137,29 @@ export default defineContentScript({
      * came: read first in the callbacks (the shared slice) and in each pass (for at most a quarter of its budget, so the backlog keeps the rest).
      */
     let urgent = new Set<Node>();
+    /**
+     * Nodes moved ahead of the backlog once the parse is done (0.1.15, src/content/end-first.ts): waiting nodes on screen, in the footer and
+     * at the end of the body. Each is taken out of `queue`/`fresh` and read here instead: the same reads, in another order.
+     */
+    let ahead = new Set<Node>();
+    /**
+     * The rest moved ahead (the parts from the end after the first look's): read in turns with the backlog, by time spent (each gets the first
+     * place in a pass while it has used no more time than the other), so what the backlog reads first is not held up behind them all (0.1.15
+     * review: a Fandom nav label, early in the backlog, 0.8 s later than base behind moved nodes).
+     */
+    let aheadRest = new Set<Node>();
+    let restMs = 0;
+    /**
+     * The backlog's next HEAD_N nodes, refreshed before each end-first step: a text inside one of them is left to the backlog (moved in parts,
+     * a Bing result list the backlog reads in one go about 0.1 s after DOMContentLoaded was read card by card, each read laying the page out
+     * again: 0.45 s later than base).
+     */
+    const nearHead = new Set<Node>();
+    const HEAD_N = 1000;
+    let queueMs = 0;
+    /** Moved nodes over BIG_READ elements: each is read at the start of a pass, alone (a long read is not made longer by others). */
+    let bigAhead = new WeakSet<Node>();
+    let endFirst: EndFirst | null = null;
     let timer: number | undefined;
     let confirmTimer: number | undefined;
     const CONFIRM_MS = 300;
@@ -182,6 +206,8 @@ export default defineContentScript({
     let sliceOpen = false;
     let sliceAt = 0;
     const SLICE_TASK_MS = 50;
+    /** Quiet time after the last scroll before what is on screen is looked for again (0.1.15). */
+    const SCROLL_IDLE_MS = 150;
     const sliceEnd = new MessageChannel();
     sliceEnd.port1.onmessage = () => {
       sliceLeft = FRESH_BUDGET_MS;
@@ -248,6 +274,13 @@ export default defineContentScript({
       queue = new Set();
       fresh = new Set();
       urgent = new Set();
+      ahead = new Set();
+      aheadRest = new Set();
+      restMs = queueMs = 0;
+      bigAhead = new WeakSet();
+      endFirst?.stop();
+      endFirst = null;
+      nearHead.clear();
       scanner?.clear();
       scanner = null;
       if (!keepReveals && !remembering) {
@@ -414,21 +447,50 @@ export default defineContentScript({
         confirmSoon(sc);
         // The budget is for reading nodes, timed after the page judge above (0.1.11: on a page of 6000 posts that took about 5 ms of every
         // pass, so a busy page's backlog was read a few nodes a pass).
+        // The parse is done: a few more waiting nodes to move ahead (at most END_FIRST_STEP_MS of collecting a pass, resumed in the next).
+        const ef = endFirst;
+        if (ef?.state === 'collecting') {
+          // What the backlog reads next (see nearHead).
+          nearHead.clear();
+          for (const q of [queue, fresh]) for (const n of q) { if (nearHead.size >= HEAD_N) break; nearHead.add(n); }
+          // A big part (over BIG_READ) takes turns with the backlog even from the first look (see CLAIM_MAX).
+          ef.step((n, first) => (first && !bigAhead.has(n) ? ahead : aheadRest).add(n));
+          // Only needed while a step looks: let the page's nodes go between steps.
+          nearHead.clear();
+        }
         const t0 = performance.now();
         // While the page is still loading nobody can interact with it yet, so hiding takes priority.
         const budget = document.readyState === 'loading' ? LOADING_BUDGET_MS : BUDGET_MS;
-        // Dialog nodes left over from the callbacks first, for at most a quarter of the budget (0.1.13), then the backlog, then the rest.
+        // Dialog nodes left over from the callbacks first, for at most a quarter of the budget (0.1.13), then the blocks read ahead (0.1.15),
+        // then the backlog, then the rest.
         let over = false;
-        for (const [q, share] of [[urgent, budget / 4], [queue, budget], [fresh, budget]] as const) {
+        let aheadRead = 0;
+        // The backlog is `queue` and then `fresh` (a page sent in pieces is mostly in `fresh`): both take the backlog's turns.
+        // Nothing moved waits: the backlog has the whole budget, as before (halved, a feed of 6000 waiting posts was read in 4.8 s, not 2.4).
+        // The moved rest only while it has used no more time than the backlog: a moved node can take 20 ms, and read after the backlog's few ms
+        // in every pass it kept the backlog at a few ms a pass (the saved Bing page sent in pieces: cards 0.45 s later than base).
+        const turns = aheadRest.size && (restMs <= queueMs || (!queue.size && !fresh.size))
+          ? [[aheadRest, budget / 2], [queue, budget], [fresh, budget]] as const
+          : [[queue, budget], [fresh, budget]] as const;
+        for (const [q, share] of [[urgent, budget / 4], [ahead, budget], ...turns] as const) {
+          const qt = performance.now();
           for (const n of q) {
+            const moved = q === ahead || q === aheadRest;
+            const big = moved && bigAhead.has(n);
+            // A big moved node waits for the next pass when this one has read another moved node already. (Not timed: the dialog nodes read
+            // first took the pass's first ms on the saved Google page, and every big node then waited, pass after pass, about 1 s.)
+            if (big && aheadRead > 0) { over = true; break; }
+            if (moved) aheadRead++;
             q.delete(n);
             read(n, body);
             const used = performance.now() - t0;
-            if ((over = used > budget) || used > share) break;
+            if ((over = used > budget || big) || used > share) break;
           }
+          if (q === aheadRest) restMs += performance.now() - qt;
+          else if ((q === queue || q === fresh) && aheadRest.size) queueMs += performance.now() - qt;
           if (over) break;
         }
-        if (urgent.size || queue.size || fresh.size) timer = window.setTimeout(drain, 0);
+        if (urgent.size || ahead.size || aheadRest.size || queue.size || fresh.size || ef?.state === 'collecting') timer = window.setTimeout(drain, 0);
         else tellCount();
         sc.quiet();
         // Reading every cover on a big page costs a few milliseconds: only when one was put on or taken off since last time.
@@ -555,6 +617,44 @@ export default defineContentScript({
       observer.observe(document.documentElement, watchOpts);
       // The page watcher does not see inside shadow roots: each one found is watched on its own.
       for (const r of shadowRoots()) observer.observe(r, watchOpts);
+      // 0.1.15: once the parse is done (and again on load), the end of the page and what is on screen are read ahead of the backlog
+      // (see `ahead`). A start after load read the whole body above already. Only a node waiting in the backlog moves (claimFor).
+      const body0 = () => document.body ?? document.documentElement;
+      const waits = (x: Node) => queue.has(x) || fresh.has(x);
+      const take = (x: Node) => { queue.delete(x); fresh.delete(x); };
+      const ef = new EndFirst(document, (t, onScreen) => {
+        for (let x: Node | null = t; x && x !== document.body; x = x.parentNode) if (nearHead.has(x)) return null;
+        const n = claimFor(t, body0(), waits, take, onScreen ? CLAIM_MAX : CLAIM_MAX_END);
+        if (n?.nodeType === 1 && (n as Element).getElementsByTagName('*')[BIG_READ]) bigAhead.add(n);
+        return n;
+      });
+      endFirst = ef;
+      // 0.1.15 second step: what is on screen is looked for by position first (end-first.ts), in a pass right after DOMContentLoaded (and
+      // load): a timer, not the event itself (run in the event, it laid a feed of 6000 posts out in the page's own task: 145 ms, base 65).
+      const readEndFirst = (screenOnly = false) => {
+        if (scanner !== sc || endFirst !== ef) return;
+        // Nothing waits: nothing to move ahead (the page behaves as before).
+        if (!queue.size && !fresh.size) return;
+        ef.start(screenOnly);
+        if (screenOnly) {
+          if (timer === undefined) timer = window.setTimeout(drain, 0);
+          return;
+        }
+        clearTimeout(timer);
+        drain();
+      };
+      const soon = () => window.setTimeout(() => readEndFirst(), 0);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', soon, { once: true });
+      if (document.readyState !== 'complete') window.addEventListener('load', soon, { once: true });
+      // Scrolled while a backlog waits: once the scrolling stops, what is on screen now is moved ahead too.
+      let scrollIdle: number | undefined;
+      const onScroll = () => {
+        if (scanner !== sc) return void window.removeEventListener('scroll', onScroll);
+        if (document.readyState === 'loading') return;
+        clearTimeout(scrollIdle);
+        scrollIdle = window.setTimeout(() => readEndFirst(true), SCROLL_IDLE_MS);
+      };
+      window.addEventListener('scroll', onScroll, { passive: true });
     };
 
     const begin = async () => {
