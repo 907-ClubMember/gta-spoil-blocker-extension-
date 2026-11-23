@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.16
+
+### Highlights
+
+- Covered text can no longer show its name in a hover tooltip on links and buttons inside comments and replies.
+
+### Fixes
+
+#### All sites
+- Covered text can no longer show its name in a hover tooltip on links and buttons inside comments and replies.
+- Reddit: a strong spoiler name in a user's name on a comment or post is now covered on its own (just the name).
+
 ## 0.1.15
 
 ### Highlights

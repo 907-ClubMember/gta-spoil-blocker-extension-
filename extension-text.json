@@ -479,6 +479,10 @@
       "Right-click a word or link and choose Never hide this.",
       "Fixes for Instagram, Reddit, Facebook, X, Gmail, Discord, Google and YouTube."
     ],
+    "v0_1_16": [
+      "Covered text can no longer show its name in a hover tooltip on links and buttons inside comments and replies.",
+      "Reddit: a strong spoiler name in a user's name on a comment or post is now covered on its own (just the name)."
+    ],
     "v0_1_15": [
       "Text that's on screen but further down the page (sidebars, side panels, footers) is now covered within a fraction of a second."
     ],

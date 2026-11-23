@@ -316,9 +316,12 @@ ${pl.preview ? `${pl.preview.split(',').map((p) => `html[${HOVER_ATTR}] ${p.trim
 };
 
 export const cssFor = (blur: BlurStrength = 'medium', layers?: PlayerLayers): string => `
+/* A covered nameplate (an inline author link, see checkNameplate) is collapsed: its short label stands in the line where the name was. */
+.gsb-bar[data-gsb-name]{display:inline-block!important;margin:0 2px!important;max-width:14em;vertical-align:baseline}
 ${COVERS('blur')}{${BLUR_CSS[blur]}!important;clip-path:inset(0)!important;user-select:none!important;pointer-events:none!important}
-/* Nothing inside a blurred cover takes a click (a player's own buttons set pointer-events:auto); the label is a sibling. */
-[data-gsb="blur"]:not([data-gsb-own],[data-gsb-keep]) *,[data-gsb="blur"][data-gsb-keep]>:not([data-gsb-kept],[data-gsb-via]) *,[data-gsb="blur"][data-gsb-keep] [data-gsb-via]>:not([data-gsb-kept],[data-gsb-via]) *{pointer-events:none!important}
+/* Nothing inside a blurred cover takes a click (a player's own buttons set pointer-events:auto); the label is a sibling. No pointer also
+   means no hover tooltip (a title with the name): the same under a comment covered own-content-only, its wrappers' children, and a covered main post. */
+[data-gsb="blur"]:not([data-gsb-own],[data-gsb-keep]) *,[data-gsb="blur"][data-gsb-own]>:not([data-gsb-in],.gsb-bar) *,[data-gsb-in="blur"]>:not([data-gsb-in],.gsb-bar) *,[data-gsb-under="blur"] *,[data-gsb-hold="blur"] *,[data-gsb="blur"][data-gsb-keep]>:not([data-gsb-kept],[data-gsb-via]) *,[data-gsb="blur"][data-gsb-keep] [data-gsb-via]>:not([data-gsb-kept],[data-gsb-via]) *{pointer-events:none!important}
 ${COVERS('collapse')},${COVERS('remove')}{display:none!important}
 .gsb-bar{all:initial;display:block;flex:none;align-self:flex-start;min-width:max-content;position:relative;z-index:2147483647;box-sizing:border-box;margin:6px 0 2px;padding:3px 10px;font:500 12px/1.4 system-ui,sans-serif;
  color:#fff;background:#23262a;border:0;border-radius:999px;cursor:pointer;text-align:left;user-select:none}
@@ -428,6 +431,8 @@ export interface ScanOptions {
   boxArt?: string;
   /** Site adapter selectors for people's names: never read (display names, handles). `people`: person cards, whose only readable part is the `bio`. */
   names?: string;
+  /** Site adapter: nameplates inside `names` where a STRONG list name covers the nameplate itself (see checkNameplate). */
+  nameplates?: string;
   people?: string;
   bio?: string;
   /** Pause video that would play by itself, and mute audio, on pages about the game. */
@@ -897,7 +902,7 @@ export class Scanner {
   private narrowBar(bar: HTMLElement, el: Element, w: number, h: number): void {
     if (bar.hasAttribute('data-gsb-icon')) return;
     const name = this.barName.get(bar) ?? bar.textContent ?? '';
-    const collapsed = this.opts.hideMode === 'collapse';
+    const collapsed = this.opts.hideMode === 'collapse' || el.hasAttribute('data-gsb-name');
     const short = bar.hasAttribute('data-gsb-short');
     if (!short && w >= this.labelWidth(name, collapsed)) return;
     // The source tag goes first: the full reason without it, when that fits (the aria-label keeps it).
@@ -2451,8 +2456,9 @@ export class Scanner {
    */
   private checkName(parent: Element): void {
     if (this.pics.thumbsOnly) return;
+    this.releaseNameplate(parent);
     if (SKIP_TAGS.has(parent.tagName.toUpperCase()) || (parent as HTMLElement).isContentEditable || this.skip(parent, true)) return;
-    if (!this.matcher.judgesPosts) return; // Light: words are not judged as spoiler phrases
+    if (!this.matcher.judgesPosts) return this.checkNameplate(parent); // Light: words are not judged as spoiler phrases, a strong name still is
     const row = (this.opts.names && parent.closest(this.opts.names)) || parent;
     // The pieces with a space between them: the display name and the handle run together in textContent, and a handle is only stripped after a space.
     let text = ' ';
@@ -2461,10 +2467,74 @@ export class Scanner {
       const p = n.parentElement;
       if (p && !SKIP_TAGS.has(p.tagName.toUpperCase()) && !p.classList.contains('gsb-bar')) text += ` ${n.nodeValue ?? ''}`;
     }
-    if (this.bioTried.get(row) === text.length) return;
+    // Same length as last time: the spoiler-name rule has nothing new to read, but a nameplate renamed to another name of that length does.
+    if (this.bioTried.get(row) === text.length) return this.checkNameplate(parent);
     this.bioTried.set(row, text.length);
     const res = this.nameSpoiler(text);
-    if (res) this.hide(this.containerFor(parent), res, 'spoiler-word', parent);
+    if (res) { this.hide(this.containerFor(parent), res, 'spoiler-word', parent); return; }
+    this.checkNameplate(parent);
+  }
+
+  /** What a nameplate read last: its text, so a rename of the same length is read again (the row cache above keys on length). */
+  private nameplateRead = new WeakMap<Element, string>();
+
+  /**
+   * The one exception to "a name or handle is never matched" (owner decision): a nameplate holding a STRONG list name (it hides alone, at
+   * word boundaries, glued handles split as a person reads them) gets its own small cover, the nameplate only: never the post or comment, the
+   * avatar or the other taglines. A weak name, a first name or a name beside the game never counts. Inside something already covered there
+   * is nothing to add.
+   */
+  private checkNameplate(parent: Element): void {
+    const sel = this.opts.nameplates;
+    if (!sel) return;
+    const np = parent.closest(sel);
+    // Whether text under a cover is still read (a reply under a comment covered "own content only", a row kept in a part-covered post) was
+    // settled by skip() in checkName; a hide on an element already covered does nothing.
+    if (!np) return;
+    const text = ` ${np.textContent ?? ''}`.slice(0, 400);
+    if (this.nameplateRead.get(np) === text) return;
+    this.nameplateRead.set(np, text);
+    const res = this.nameplateMatch(text);
+    if (!res) return;
+    // A small inline link inside a clickable row cannot be a blurred cover (the blur takes no clicks, so a press would land on the row under
+    // it, and a strip under 24 px is tiny UI): it is covered as a collapsed line, its short label standing where the name was. The mode is
+    // swapped for this one cover; remove mode stays as set. The marker (every mode) tells wordsCovered, the label sizing and the repair path.
+    const swap = this.opts.hideMode === 'blur';
+    if (swap) this.opts.hideMode = 'collapse';
+    try {
+      np.setAttribute('data-gsb-name', '');
+      this.hide(np, res, 'alone', np);
+    } finally {
+      // Restored on every path (a throw too); the marker stays only on a nameplate that was really covered.
+      if (swap) this.opts.hideMode = 'blur';
+      if (!np.hasAttribute('data-gsb')) np.removeAttribute('data-gsb-name');
+    }
+    if (np.hasAttribute('data-gsb')) this.hidden.get(np)?.setAttribute('data-gsb-name', '');
+    else this.nameplateRead.delete(np); // declined for now (a shown card, a setting): looked at again the next time
+  }
+
+  /** The cover for a nameplate's text: a STRONG list name only (word boundaries, glued handles split), whatever the page context. */
+  private nameplateMatch(text: string): MatchResult | null {
+    // Split at capitals, digits and separators only: splitLower carves list words out of any long lowercase run ("plimboland"), which the
+    // spoiler-name rule can afford (it also needs a story word or the game) but a cover on its own cannot.
+    const found = this.matcher.inspect(unglue(text).toLowerCase());
+    // A strong LIST name: the person's own keywords alone (custom) are not a name on this page's list.
+    if (![...found.strong].some((c) => c !== 'custom')) return null;
+    return this.matcher.decide(found, false, false);
+  }
+
+  /** A covered nameplate renamed to something that no longer holds a strong name gives its cover back. */
+  private releaseNameplate(parent: Element): void {
+    const sel = this.opts.nameplates;
+    const np = sel ? parent.closest(sel) : null;
+    if (!np || !np.hasAttribute('data-gsb-name') || !this.hidden.has(np)) return;
+    const text = ` ${np.textContent ?? ''}`.slice(0, 400);
+    if (this.nameplateRead.get(np) === text) return;
+    this.nameplateRead.set(np, text);
+    if (this.nameplateMatch(text)) return;
+    this.unhide(np);
+    np.removeAttribute('data-gsb-name');
+    this.nameplateRead.delete(np);
   }
 
   /** Is a display name or handle written as a spoiler (see checkName)? */
@@ -3055,6 +3125,11 @@ export class Scanner {
   }
 
   private uncoverEl(el: Element, bar = this.hidden.get(el)): void {
+    // A nameplate cover taken off (absorbed by a wider cover, released, shown): the next read judges it afresh.
+    if (el.hasAttribute('data-gsb-name')) {
+      el.removeAttribute('data-gsb-name');
+      this.nameplateRead.delete(el);
+    }
     this.releaseMedia(el);
     giveBackFilter(el);
     if (bar) this.probeBars.delete(bar);
@@ -4472,7 +4547,7 @@ export class Scanner {
     // and so is all of Facebook (its comments are named, and its post pages kept this rule before they had a main post).
     if (!cards || (!this.opts.replies && this.opts.main && (!this.opts.threads || this.threadKey() !== null))) return;
     const cover = (root.nodeType === 1 ? (root as Element) : root.parentElement)?.closest('[data-gsb]');
-    if (!cover || cover === root || !this.hidden.has(cover) || cover.getAttribute('data-gsb-why') !== 'alone' || this.dialogOf.has(cover)) return;
+    if (!cover || cover === root || !this.hidden.has(cover) || cover.getAttribute('data-gsb-why') !== 'alone' || this.dialogOf.has(cover) || cover.hasAttribute('data-gsb-name')) return;
     // The cover may sit on a part of the card (a Gmail row's subject and preview): the card is judged, the part is what comes off (B-037).
     const card = cover.matches(cards) ? cover : cover.closest(cards);
     if (!card || (card !== cover && !this.opts.coverParts)) return;
@@ -5637,6 +5712,8 @@ export class Scanner {
    */
   private wordsCovered(card: Element): boolean {
     for (const c of [card, ...card.querySelectorAll('[data-gsb]')]) {
+      // A nameplate covered for its own strong name (checkNameplate) says nothing about the card's words or its pictures.
+      if (c.hasAttribute('data-gsb-name')) continue;
       const why = c.getAttribute('data-gsb-why');
       if (why && why !== 'near-game' && why !== 'media' && (c === card || c.closest(this.opts.containers!) === card)) return true;
     }
@@ -5726,6 +5803,12 @@ export class Scanner {
 
   /** The person showed `el` (its label, or the player's play button). */
   private showPress(el: Element): void {
+    // A nameplate's own label shows that nameplate only: not the words, pictures or other covers of its post or comment.
+    if (el.hasAttribute('data-gsb-name')) {
+      this.reveal(el);
+      syncReaders(this.doc);
+      return;
+    }
     // The covers whose bars sit under this one are shown with it (stackBars), and so is every other cover in the same post: one press shows the post.
     // (0.1.10: not for a comment's own cover inside the main post of ownMain: the post found for it is the main post, which stays covered.)
     const post = this.ownComment(el) ? null : this.shownPost(el);
@@ -6075,7 +6158,7 @@ export class Scanner {
     let fixed = this.trailerWait.size ? this.recheckTrailers() : false;
     for (const el of this.hidden.keys()) {
       if (!el.isConnected || this.revealed.has(el) || el.hasAttribute('data-gsb')) continue;
-      el.setAttribute('data-gsb', this.opts.hideMode);
+      el.setAttribute('data-gsb', el.hasAttribute('data-gsb-name') && this.opts.hideMode === 'blur' ? 'collapse' : this.opts.hideMode);
       // Its reason too, so a cover put on because of the page still comes off when the page stops being about the game.
       const why = this.whyOf.get(el);
       if (why && !el.hasAttribute('data-gsb-why')) el.setAttribute('data-gsb-why', why);

@@ -109,6 +109,8 @@ export interface Adapter {
   threadEnd?: string;
   /** People's names and handles (display names, author lines): never matched against the list. `people`: person cards (their text is not read), except their `bio`, which only a high-risk signal covers. */
   names?: string;
+  /** The one exception to `names` (owner decision): a nameplate (an author link) holding a STRONG list name gets its own small cover, nothing around it. Reddit only. */
+  nameplates?: string;
   /** What is never covered as a picture or video: a live stream's player (the owner's rule: its title or card is covered, the player is not), or the site's own artwork (Reddit's sign-up panel). */
   keepClear?: string;
   /**
@@ -276,6 +278,8 @@ export const ADAPTERS: Adapter[] = [
     // A person's display name or handle is never matched against the list (0.1.8 audit, as on X): a name written as a spoiler is still caught.
     // Old Reddit's author link (not the flair, which is free text); new Reddit's author links in a post's or comment's header.
     names: '.tagline a.author, [slot="commentMeta"] a[href*="/user/"], [slot="credit-bar"] a[href*="/user/"], rs-timeline-event-hovercard',
+    // Inside a post or comment only: a promoted post's credit bar (an advertiser, shreddit-ad-post) is site chrome and stays out.
+    nameplates: '.tagline a.author, shreddit-comment [slot="commentMeta"] a[href*="/user/"], shreddit-post [slot="credit-bar"] a[href*="/user/"]',
     primaryPost: 'shreddit-post, #siteTable .thing.link',
     // A post page: the post is the one main post; its comments follow it in the page, not inside it.
     main: 'shreddit-post[view-context="CommentsPage"], #siteTable .thing.link',
