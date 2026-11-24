@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.18
+
+### Highlights
+
+- Text that changes after a page has loaded (side widgets, flair, comment bodies) and posts added after load are now covered within a fraction of a second, not after the rest of the page.
+- Google: the Google logo (its doodle or wordmark) is no longer covered by mistake.
+- Twitch and Kick: a long information page no longer has every picture covered because one paragraph is; a picture is covered by its own name or the text right next to it.
+- Instagram and Facebook: the comment box under a covered post can be used again.
+- A name that appears when text is rewritten to the same length (for example a name finished letter by letter, in a post, a hover card or a display name) is now covered; before, such a rewrite was never read again.
+
+### Fixes
+
+#### All sites
+- Text that changes after a page has loaded (side widgets, flair, comment bodies) and posts added after load are now covered within a fraction of a second, not after the rest of the page.
+- A name that appears when text is rewritten to the same length (for example a name finished letter by letter, in a post, a hover card or a display name) is now covered; before, such a rewrite was never read again.
+
+#### Google
+- Google: the Google logo (its doodle or wordmark) is no longer covered by mistake.
+
+#### Twitch and Kick
+- Twitch and Kick: a long information page no longer has every picture covered because one paragraph is; a picture is covered by its own name or the text right next to it.
+
+#### Instagram and Facebook
+- Instagram and Facebook: the comment box under a covered post can be used again.
+
 ## 0.1.16
 
 ### Highlights

@@ -349,6 +349,9 @@ export const ADAPTERS: Adapter[] = [
     // tabs and the whole results column (0.1.8 audit): then (the results column, or several results in it) it is no panel, and each
     // result is its own card.
     panels: '#rhs, .kp-wholepage:not(:has(#rso)):not(:has(#search))',
+    // The search page's own logo (a doodle or the wordmark, in a link to Google's home): the site's artwork, never covered. When it does not
+    // load, the browser draws its alt text in a box wider than the picture, which counted as a big picture and got a label on a 16 px element.
+    keepClear: 'div.logo',
     panelSplit: '.kp-wholepage',
     // Only results split it, never a panel's own news cards (g-card): as at 0.1.8, also while units are off.
     splitCards: '.MjjYud',

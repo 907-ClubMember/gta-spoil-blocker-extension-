@@ -82,7 +82,7 @@ export function readChatPlace(doc: Document, path: string): ChatPlace {
 export const asWords = (s: string) => s.replace(/[-_#·|]+/g, ' ').replace(/(\p{L})(\p{N})/gu, '$1 $2');
 
 /** "GTA", "GTA6", "GTA 6", "GTA-6", "GTAVI" in a server name. */
-const GTA = /\bgta(?:\s*-?\s*(?:6|vi))?\b/i;
+export const GTA = /\bgta(?:\s*-?\s*(?:6|vi))?\b/i;
 
 /** Is this a game place: the server names the game (plain "GTA" counts there), or the channel, topic or category does. */
 export function isGamePlace(p: ChatPlace, names: (text: string) => boolean): boolean {

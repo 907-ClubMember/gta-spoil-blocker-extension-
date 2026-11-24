@@ -15,6 +15,7 @@ import { createCountPort } from '../count-port';
 import { readLastError } from '../last-error';
 import { watchContextMenu } from '../beta/content';
 import { BIG_READ, CLAIM_MAX, CLAIM_MAX_END, claimFor, EndFirst } from '../content/end-first';
+import { ChangedPacer, JudgeCache, lineOf, MIGHT_MAX, oneSpace, pacingKey } from '../content/changed-pacer';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -133,10 +134,70 @@ export default defineContentScript({
      */
     let fresh = new Set<Node>();
     /**
+     * Nodes the page added after load while a backlog still waits, in the order they came (leak hunt part 2, builder 3): read before the old
+     * backlog, in the callbacks and in each pass (for at most NEWER_SHARE of the pass, so the old backlog keeps the rest: at 3/4 a feed of
+     * 6000 waiting posts with 20-30 more a frame ended 40-77% later). Parts with elements in them only (see into). In `fresh` they
+     * waited behind it, first in, first out: a unit appended 12 s after the saved Reddit thread was opened was covered 9.8 s later.
+     */
+    let newer = new Set<Node>();
+    const NEWER_SHARE = 1 / 2;
+    /**
+     * The time spent reading `newer` and the old backlog (`queue`, `fresh`) while both wait: the share is by time (review rv12 of 40224450:
+     * by the pass's clock alone, a heavy new unit (a Reddit comment: 5-30 ms) over the pass's budget ended the pass and the old backlog got
+     * nothing; with 3 such units a frame it got 1% of the read time). Whichever has had less goes first in the next pass, as aheadRest's
+     * turns (restMs, queueMs). Both start again when the old backlog is empty (not when `newer` is: a stream of single units empties it
+     * every frame, and starting again each time gave `newer` the first read of every pass).
+     */
+    let newMs = 0;
+    let oldMs = 0;
+    /** `newer` goes first while its time is at most this share of the old backlog's (a heavy read overruns by up to its own length). */
+    const NEW_RATIO = 0.6;
+    /**
      * Nodes that are, hold or land inside a dialog ([role=dialog], dialog, [aria-modal=true]) while a backlog waits (0.1.13), in the order they
      * came: read first in the callbacks (the shared slice) and in each pass (for at most a quarter of its budget, so the backlog keeps the rest).
      */
     let urgent = new Set<Node>();
+    /**
+     * Text the page changed in an element it already had (0.1.15 changed text: a characterData change, or an element's text replaced) while a
+     * backlog waits, in the order it came: looked at first in the callbacks (the shared slice) and in each pass (with `urgent`'s quarter of
+     * the budget). What is on screen is read there; the rest goes to the front of `queue` (the backlog's own first: at the front of `fresh`,
+     * read only once `queue` was, the last flair of the saved Reddit thread was covered 0.9-1.6 s after the change). At the end of `fresh` it
+     * waited behind the whole backlog: on the saved Reddit thread a name written into the community widget was covered after 10 s.
+     */
+    let changed = new Set<Node>();
+    /** At most this many changes of one callback are taken as `changed` (a ticker rewriting 500 texts at once: the rest as before). */
+    const CHANGED_MAX = 16;
+    /** ...and an element put in where others were taken out only with fewer elements than this inside (text with a link or two, not a post). */
+    const CHANGED_ELEMENTS = 8;
+    /** ...and none with a picture, a video or a frame in it (see the page watcher). */
+    const MEDIA = 'img, picture, video, audio, svg, canvas, iframe, embed, object';
+    /**
+     * Changed text off screen goes to the front of `queue` at most once per this many ms (`frontAt`): a ticker after a feed that rewrote its
+     * 500 lines every frame put the same 16 at the front each frame and held the feed's last named post up to 0.8 s later than base.
+     */
+    const CHANGED_AGAIN_MS = 1000;
+    let frontAt = new WeakMap<Node, number>();
+    /** Changed text that cannot match is read first at most CHANGED_RATE times a second (CHANGED_BURST at once): see readChanged. */
+    const CHANGED_RATE = 120;
+    const CHANGED_BURST = 30;
+    /** Changed text this short with at most this many letters is ticker-like (a clock, a count, a score: '12:04', '3-1', '1.2K'): see readChanged. */
+    const TICKER_CHARS = 32;
+    const TICKER_LETTERS = 3;
+    let changedTokens = CHANGED_BURST;
+    let changedAt = 0;
+    /** Changed text whose read threw once (see readChanged). */
+    const rethrown = new WeakSet<Node>();
+    /** Changed text read again at most once per CHANGED_READ_MS, the last change in the window read at its end (src/content/changed-pacer.ts). */
+    const pacer = new ChangedPacer();
+    let pacerTimer: number | undefined;
+    /** The last verdict per changed text's key (see changeCould): bounded, emptied on stop. */
+    const judged = new JudgeCache();
+    /** The last 3 callbacks in which each element's text changed (see tickerLike): new on stop. */
+    let changedTimes = new WeakMap<Node, number[]>();
+    /** At most this many changed texts on screen read in one callback (the rest in a pass). */
+    const CHANGED_SCREEN_CAP = 8;
+    /** A changed element with elements inside is judged by at most this many units inside it (see readChanged), else read at once. */
+    const NESTED_UNITS = 8;
     /**
      * Nodes moved ahead of the backlog once the parse is done (0.1.15, src/content/end-first.ts): waiting nodes on screen, in the footer and
      * at the end of the body. Each is taken out of `queue`/`fresh` and read here instead: the same reads, in another order.
@@ -273,7 +334,16 @@ export default defineContentScript({
       lookNow = null;
       queue = new Set();
       fresh = new Set();
+      newer = new Set();
+      newMs = oldMs = 0;
       urgent = new Set();
+      changed = new Set();
+      frontAt = new WeakMap();
+      pacer.clear();
+      judged.clear();
+      changedTimes = new WeakMap();
+      if (pacerTimer !== undefined) clearTimeout(pacerTimer);
+      pacerTimer = undefined;
       ahead = new Set();
       aheadRest = new Set();
       restMs = queueMs = 0;
@@ -428,6 +498,242 @@ export default defineContentScript({
         // Inside a shadow root (Reddit's chat) body.contains says no, so the node's own root decides.
         if (n.isConnected && (n === body || body.contains(n) || (n.getRootNode() as ShadowRoot).host)) sc.scan(n);
       };
+      /** Held changed text whose window ended goes back into `changed`, and a pass reads it (see pacer). */
+      const wakePacer = () => {
+        pacerTimer = undefined;
+        if (scanner !== sc) return;
+        for (const n of pacer.takeDue(performance.now())) changed.add(n);
+        if (changed.size && timer === undefined) timer = window.setTimeout(drain, 0);
+        armPacer();
+      };
+      const armPacer = () => {
+        const at = pacer.next();
+        if (at === undefined || pacerTimer !== undefined) return;
+        pacerTimer = window.setTimeout(wakePacer, Math.max(0, at - performance.now()));
+      };
+      /**
+       * Changed text (see `changed`): what is on screen is read now (until `over`, at most `cap` reads); the rest goes to the front of `queue`, in
+       * the order it came. A node read less than CHANGED_READ_MS ago is held to its window's end (no layout read for it); the others' places are
+       * read all at once before any read (a read puts covers in: a place read after it lays the page out again).
+       */
+      /**
+       * Could a changed text match anything? Held (paced, or past the bucket to the backlog) only when every way it can be read says no
+       * (review B of 7ff90bb7: each single reading missed a shape the scanner covers, one at a time): it is ticker-like (tickerLike), no
+       * link, label, described picture or shadow root is in or around it, and none of these texts can match (mightMatch): the changed
+       * node's own, its key's (pacingKey) as one text and with a space between its pieces, the unit the scanner reads it in (its joined
+       * block or a site card's unit) as the scanner reads it and with spaces, else its line (lineOf). The last texts judged per key, and
+       * the answer (Scanner.couldCover: the matcher and the scanner's text rules; review B of bfe60ffc: a story phrase in a chat line).
+       * Anything else is read as it comes, as before the pacing.
+       */
+      const spaced = (el: Element) => {
+        let out = '';
+        const walker = document.createTreeWalker(el, 4 /* SHOW_TEXT */);
+        for (let t = walker.nextNode(); t && out.length <= MIGHT_MAX; t = walker.nextNode()) out += ` ${t.nodeValue ?? ''}`;
+        return out;
+      };
+      const textsCould = (n: Node, key: Node) => {
+        const el = key.nodeType === 1 ? (key as Element) : key.parentElement;
+        // Every unit the scanner reads it in (Scanner.readUnits: its joined block or card unit, a suggestion row, a bio, a name row, a
+        // nameplate, a message's embeds, the post), each as read and with spaces between pieces; with no joined block, its line.
+        const reads = el ? sc.readUnits(el) : [];
+        const line = reads.some((r) => r.by === 'checkJoined') ? null : lineOf(key);
+        const texts = [n.textContent ?? '', key.textContent ?? '', el ? spaced(el) : '', ...reads.flatMap((r) => [r.text, spaced(r.block)]), line?.textContent ?? '', line && line.nodeType === 1 ? spaced(line as Element) : ''];
+        // A changed element with elements inside: also each unit the scanner reads its texts in (see nested).
+        if (nested(n)) {
+          const inner = innerTexts(n as Element);
+          if (!inner) return true;
+          texts.push(...inner);
+        }
+        // Each text with its spaces as one (oneSpace: ASCII spaces only): a key's text and its text with spaces between pieces are often
+        // the same text.
+        const all = [...new Set(texts.map(oneSpace).filter(Boolean))];
+        // Keyed on the texts as they are (review B of badee39f: with numbers folded, 'Zorb 40777', which the matcher repairs to a listed
+        // 'Zorb 4077', got the verdict of 'Zorb 4080': held, 78 frames).
+        const seen = all.join('\u0001');
+        const last = judged.get(key, seen);
+        if (last !== undefined) return last;
+        const could = all.some((text) => sc.couldCover(text));
+        judged.set(key, seen, could);
+        return could;
+      };
+      /**
+       * The last 3 callbacks in which each element's text changed (a text's parent, the element nodes were swapped in), noted for every
+       * change, also those past CHANGED_MAX (see tickerLike).
+       */
+      const noteChange = (at: Node | null, now: number) => {
+        if (!at) return;
+        const times = changedTimes.get(at);
+        if (!times) changedTimes.set(at, [now]);
+        else if (times[times.length - 1] !== now) {
+          times.push(now);
+          if (times.length > 3) times.shift();
+        }
+      };
+      /**
+       * Ticker-like: short with few letters (a clock, a count, a score: TICKER_CHARS, TICKER_LETTERS), or its key (or parent) changed 3
+       * times within CHANGED_AGAIN_MS (a ticker's line).
+       */
+      const tickerLike = (n: Node, key: Node, now: number) => {
+        const often = (x: Node | null) => {
+          const times = x && changedTimes.get(x);
+          return !!times && times.length === 3 && now - times[0]! <= CHANGED_AGAIN_MS;
+        };
+        if (often(key) || often(n.parentNode)) return true;
+        const t = (n.textContent ?? '').trim();
+        return t.length <= TICKER_CHARS && (t.match(/\p{L}/gu)?.length ?? 0) <= TICKER_LETTERS;
+      };
+      /**
+       * A link, label, described picture or shadow root in or around the change or its key: read at once, never held (review A of
+       * 6ee5976d: a link to a blocked account swapped into a small parent was held, its words can match nothing; the scanner reads links
+       * and labels too. Review B of 7ff90bb7: a name in a shadow root swapped in, which no text above sees).
+       */
+      const linked = (n: Node, key: Node) => {
+        const inside = (x: Node) => x.nodeType === 1 && ((x as Element).matches('[aria-label], img[alt]') || !!(x as Element).shadowRoot || !!(x as Element).querySelector('a[href], [aria-label], img[alt]') || [...(x as Element).getElementsByTagName('*')].some((c) => !!c.shadowRoot));
+        const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
+        return !e || !!e.closest('a[href], [aria-label]') || inside(n) || (key !== n && inside(key));
+      };
+      /**
+       * A changed element with an element inside is also judged by each unit the scanner reads a text of it in (review C of e8468104:
+       * '<div><p><em>Zorb</em>lax Quux</p><p>wins</p></div>' swapped in: its text glues the blocks, its text with spaces splits the word,
+       * the scanner reads the inner block joined: held, 70-76 frames; read at once instead, a ticker swapping '<span><b>..</b></span>'
+       * drew 20% fewer frames). At most NESTED_UNITS units and MIGHT_MAX characters, else it could match (null).
+       */
+      const nested = (n: Node) => n.nodeType === 1 && (n as Element).firstElementChild !== null;
+      const innerTexts = (el: Element): string[] | null => {
+        const units = new Set<Element>();
+        const parents = new Set<Element>();
+        const out: string[] = [];
+        let chars = 0;
+        const walker = document.createTreeWalker(el, 4 /* SHOW_TEXT */);
+        for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+          const p = t.parentElement;
+          if (!p || parents.has(p)) continue;
+          parents.add(p);
+          const reads: { text: string; block: Element }[] = sc.readUnits(p);
+          if (!reads.some((r) => r.block.contains(p))) reads.push({ text: lineOf(t).textContent ?? '', block: lineOf(t) as Element });
+          for (const { text, block } of reads) {
+            if (units.has(block)) continue;
+            units.add(block);
+            if (units.size > NESTED_UNITS) return null;
+            chars += text.length;
+            if (chars > MIGHT_MAX) return null;
+            out.push(text, block.nodeType === 1 ? spaced(block) : '');
+          }
+        }
+        return out;
+      };
+      /** A change in a post or unit with a picture (Scanner.nearMedia): read at once, never held. */
+      const media = (n: Node) => {
+        const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
+        return !e || sc.nearMedia(e);
+      };
+      /** Could the change match anything (see judged)? A throw counts as could (review B of 7ff90bb7: it left the node in `changed`, every pass threw first). */
+      const changeCould = (n: Node, key: Node, now: number) => {
+        try {
+          return !tickerLike(n, key, now) || linked(n, key) || media(n) || textsCould(n, key);
+        } catch {
+          return true;
+        }
+      };
+      const readChanged = (body: HTMLElement, over: () => boolean, cap = Infinity) => {
+        const later: Node[] = [];
+        let stop = false;
+        const now = performance.now();
+        for (const n of pacer.takeDue(now)) changed.add(n);
+        // A node leaves `changed` only once it is handed out (read, held by the pacer, or put in the backlog): a throw (a place read, a
+        // read) leaves the rest there, and a pass reads them (review rv9 of ae6f8175: taken out first, a throw at the m-th place read left
+        // m rewritten names uncovered). The node whose read threw goes to `fresh` once (a node that throws every time is dropped, as before).
+        // The place of a node is read only while a read is left for it (undefined: not placed).
+        const look: [Node, DOMRect | null | undefined, Node, boolean][] = [];
+        let reading: Node | null = null;
+        changedTokens = Math.min(CHANGED_BURST, changedTokens + ((now - changedAt) * CHANGED_RATE) / 1000);
+        changedAt = now;
+        let spare = changedTokens;
+        try {
+          for (const n of changed) {
+            if (look.length >= cap) break;
+            // Paced by the element the text (or a small element swapped in) is in, when that is small: a text replaced every frame is a
+            // new node every frame (a ticker's textContent), and paced by node it was read every frame (65-126 ms tasks, 4% fewer frames);
+            // a <b> swapped into a line every frame, the same (review 1 of d62f5a06). Held, the element is read at the window's end, with
+            // whatever it then holds.
+            const key = pacingKey(n, CHANGED_ELEMENTS);
+            // Held only when its text cannot match (review 1 of d62f5a06: a name written into a line read 5-200 ms before was held to
+            // the window's end, 3-15 frames on screen; base reads it in the callback). Pacing is for tickers, whose text is no name.
+            // Every way it can be read (review rv12 of 40224450: 'Quux' changed beside 'Zorblax' in a line cannot match alone; judged
+            // alone it was held, 115-118 frames on screen; review B of 7ff90bb7: see changeCould).
+            const could = changeCould(n, key, now);
+            if (!pacer.admit(key, now) && !could) {
+              changed.delete(n);
+              continue;
+            }
+            // Text that cannot match past the reads left goes to `fresh` below whatever its place: its place is not read (a ticker swapping
+            // 500 lines: 8 places read a callback, the first laying the page out again, for 1-2 reads left; off screen it went to the front
+            // of `queue`, which only orders text that cannot match).
+            if (!could) {
+              if (spare < 1) {
+                look.push([n, undefined, key, could]);
+                continue;
+              }
+              spare--;
+            }
+            const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
+            // A place read that throws (every time) hands the node to the backlog, and the rest go on (review A of 6ee5976d: thrown out of
+            // readChanged ahead of every set, it kept the pass from the backlog: never covered in 12 s).
+            let r: DOMRect | null = null;
+            try {
+              r = e?.isConnected ? e.getBoundingClientRect() : null;
+            } catch {
+              changed.delete(n);
+              fresh.add(n);
+              continue;
+            }
+            look.push([n, r, key, could]);
+          }
+          const h = window.innerHeight, w = window.innerWidth;
+          for (const [n, r, key, could] of look) {
+            if (stop) break;
+            changed.delete(n);
+            // Text that cannot match, past CHANGED_RATE reads a second: to the end of `fresh`, as before (a ticker rewriting 500 lines a
+            // frame, each paced, was still read 2000 times a second: 6-7% fewer frames than base).
+            if (!could && (changedTokens < 1 || r === undefined)) {
+              fresh.add(n);
+              continue;
+            }
+            // No box (display: contents, review B of 7ff90bb7: text that could match went to the queue, 19 frames): read now when it
+            // could match, else as off screen.
+            if (!r || (!r.width && !r.height ? !could : r.bottom <= 0 || r.top >= h || r.right <= 0 || r.left >= w)) {
+              // Off screen and changed again within CHANGED_AGAIN_MS (a ticker): to the end of `fresh`, as before.
+              if (now - (frontAt.get(key) ?? -Infinity) < CHANGED_AGAIN_MS) fresh.add(n);
+              else {
+                frontAt.set(key, now);
+                later.push(n);
+              }
+            } else {
+              pacer.read(key, now);
+              if (!could) changedTokens--;
+              reading = n;
+              read(n, body);
+              reading = null;
+              stop = over();
+            }
+          }
+        } finally {
+          if (reading && !rethrown.has(reading)) {
+            rethrown.add(reading);
+            fresh.add(reading);
+          }
+          armPacer();
+          if (later.length) {
+            // In front, the same set (a pass holds it in its turns).
+            const rest = [...queue];
+            queue.clear();
+            for (const n of later) queue.add(n);
+            for (const n of rest) queue.add(n);
+          }
+          if ((changed.size || reading) && timer === undefined) timer = window.setTimeout(drain, 0);
+        }
+        return stop;
+      };
       const drain = () => {
         timer = undefined;
         if (scanner !== sc) return; // a newer start has taken over: this pass belongs to a scan that was cleared
@@ -462,7 +768,9 @@ export default defineContentScript({
         // While the page is still loading nobody can interact with it yet, so hiding takes priority.
         const budget = document.readyState === 'loading' ? LOADING_BUDGET_MS : BUDGET_MS;
         // Dialog nodes left over from the callbacks first, for at most a quarter of the budget (0.1.13), then the blocks read ahead (0.1.15),
-        // then the backlog, then the rest.
+        // then the backlog, then the rest. Changed text left over comes right after the dialog nodes, with a quarter of the budget of its own,
+        // and the pass goes on (what is not on screen goes to the front of `queue`): a page that changes its text all the time takes neither
+        // the dialog nodes' share (read before them on the same clock, they were left one node a pass) nor the passes from the rest.
         let over = false;
         let aheadRead = 0;
         // The backlog is `queue` and then `fresh` (a page sent in pieces is mostly in `fresh`): both take the backlog's turns.
@@ -472,7 +780,16 @@ export default defineContentScript({
         const turns = aheadRest.size && (restMs <= queueMs || (!queue.size && !fresh.size))
           ? [[aheadRest, budget / 2], [queue, budget], [fresh, budget]] as const
           : [[queue, budget], [fresh, budget]] as const;
-        for (const [q, share] of [[urgent, budget / 4], [ahead, budget], ...turns] as const) {
+        // What the page added after load first (`newer`), for at most NEWER_SHARE of the pass while an older backlog waits.
+        // By time (see newMs): while the old backlog has had less, it has the pass (`newer` only if it ends), else `newer` first for at most
+        // NEWER_SHARE of it. (Old first for a share only, a heavy new unit read after it every pass kept the old backlog at 26-29%.)
+        const oldWaits = queue.size > 0 || fresh.size > 0;
+        if (!oldWaits) newMs = oldMs = 0;
+        const newShare = oldWaits || aheadRest.size ? budget * NEWER_SHARE : budget;
+        const order = newMs <= oldMs * NEW_RATIO
+          ? [[urgent, budget / 4], [ahead, budget], [newer, newShare], ...turns] as const
+          : [[urgent, budget / 4], [ahead, budget], ...turns, [newer, budget]] as const;
+        for (const [q, share] of order) {
           const qt = performance.now();
           for (const n of q) {
             const moved = q === ahead || q === aheadRest;
@@ -486,11 +803,18 @@ export default defineContentScript({
             const used = performance.now() - t0;
             if ((over = used > budget || big) || used > share) break;
           }
+          if (q === urgent && !over && changed.size) {
+            const ct = performance.now();
+            readChanged(body, () => performance.now() - ct > budget / 4);
+            over = performance.now() - t0 > budget;
+          }
           if (q === aheadRest) restMs += performance.now() - qt;
           else if ((q === queue || q === fresh) && aheadRest.size) queueMs += performance.now() - qt;
+          if (q === newer && oldWaits) newMs += performance.now() - qt;
+          else if (q === queue || q === fresh) oldMs += performance.now() - qt;
           if (over) break;
         }
-        if (urgent.size || ahead.size || aheadRest.size || queue.size || fresh.size || ef?.state === 'collecting') timer = window.setTimeout(drain, 0);
+        if (urgent.size || changed.size || ahead.size || aheadRest.size || newer.size || queue.size || fresh.size || ef?.state === 'collecting') timer = window.setTimeout(drain, 0);
         else tellCount();
         sc.quiet();
         // Reading every cover on a big page costs a few milliseconds: only when one was put on or taken off since last time.
@@ -540,16 +864,30 @@ export default defineContentScript({
         // or lands inside a dialog (`urgent`, 0.1.13): inside, one look per change at where it landed; is or holds, the first DIALOG_CHECKS
         // nodes of the callback and the last DIALOG_TAIL of each change.
         let added = 0;
-        const into = (n: Node, inDialog: boolean, tail: boolean) => {
+        let changes = 0;
+        const into = (n: Node, inDialog: boolean, tail: boolean, replaces = false) => {
           const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
           // Our own go with the backlog, as before 0.1.11.
+          // Not also read as changed text (see change).
+          changed.delete(n);
           if (!waiting || e?.closest(OWN_NODES)) return void queue.add(n);
           queue.delete(n);
           added++;
           if (inDialog || (n.nodeType === 1 && (added <= DIALOG_CHECKS || tail) && (e!.matches(DIALOGS) || e!.querySelector(DIALOGS)))) {
             fresh.delete(n);
+            newer.delete(n);
             urgent.add(n);
-          } else if (!urgent.has(n)) fresh.add(n);
+          } else if (!urgent.has(n)) {
+            // After load: before the old backlog (see `newer`); a part with elements in it only (a unit, a post), not a text or a bare
+            // element swapped in (a ticker's churn: read first, a ticker that swaps 500 lines a frame cost 7% of the frames), and nothing
+            // put in where other nodes were taken out (`replaces`: a rewrite of a part already there, not an appended unit; review C of
+            // e03f5713: a ticker swapping '<span><b>..</b></span>' into 500 lines put them ahead, the old backlog's last post 0.65 s later).
+            // A page that rebuilds a unit by taking it out and putting a new one in goes to `fresh`, as before `newer`.
+            if (!replaces && document.readyState === 'complete' && n.nodeType === 1 && (n as Element).firstElementChild) {
+              fresh.delete(n);
+              newer.add(n);
+            } else if (!newer.has(n)) fresh.add(n);
+          }
         };
         /** Where a change landed is inside a dialog (looked at only while a backlog waits). */
         const landsInDialog = (t: Node) => {
@@ -557,8 +895,31 @@ export default defineContentScript({
           const at = t.nodeType === 1 ? (t as Element) : (t.parentElement ?? (t as ShadowRoot).host ?? null);
           return !!at?.closest(DIALOGS);
         };
+        /** Text changed in place (see `changed`): in a dialog, past CHANGED_MAX, our own, or more than a few elements (a part swapped in), as a new node. */
+        const change = (n: Node, tail = true) => {
+          const inside = landsInDialog(n);
+          const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
+          if (!waiting || inside || changes >= CHANGED_MAX || e?.closest(OWN_NODES) || (n.nodeType === 1 && (e!.getElementsByTagName('*')[CHANGED_ELEMENTS] || e!.matches(DIALOGS) || e!.querySelector(DIALOGS)))) return into(n, inside, tail, true);
+          changes++;
+          // Counted as a change of the callback, as before (a callback with only such changes still reads the oldest of `fresh` in the slice:
+          // not counted, a clock rewritten every frame left the slice unused and a backlog ended 1 s later).
+          added++;
+          // Read here only (not also where it waited before).
+          queue.delete(n);
+          fresh.delete(n);
+          newer.delete(n);
+          urgent.delete(n);
+          ahead.delete(n);
+          aheadRest.delete(n);
+          changed.delete(n);
+          changed.add(n);
+        };
+        const seenAt = performance.now();
         for (const m of muts) {
-          if (m.type === 'characterData') into(m.target, landsInDialog(m.target), false);
+          if (m.type === 'characterData') {
+            noteChange(m.target.parentNode, seenAt);
+            change(m.target, false);
+          }
           // A reused card (YouTube recycles its tiles) gets a new link address without a new element: spoiler accounts are
           // read from links, so a changed address is checked for those only (watched only while any account is listed).
           else if (m.type === 'attributes') {
@@ -567,9 +928,15 @@ export default defineContentScript({
             else if (t.matches('img, video')) into(t, landsInDialog(t), false);
           }
           else if (m.addedNodes.length) {
+            // An element's text replaced (a node or two put in where others were taken out): changed text too. Not a picture: put in at a
+            // size it has not got yet, read at once it was covered as a tiny icon (the saved IGN game page's 145x16 thumbnail).
+            const swap = m.removedNodes.length > 0 && m.addedNodes.length <= 2;
+            if (swap) noteChange(m.target, seenAt);
             const inside = landsInDialog(m.target);
             const last = m.addedNodes.length - DIALOG_TAIL;
-            m.addedNodes.forEach((n, i) => into(n, inside, i >= last));
+            // Past CHANGED_MAX (or with nothing waiting) straight to the backlog, as before: a ticker swapping 500 lines a frame paid a
+            // picture check and a dialog check for each (5% fewer frames than base).
+            m.addedNodes.forEach((n, i) => (swap && waiting && changes < CHANGED_MAX && (n.nodeType === 3 || (n.nodeType === 1 && !(n as Element).matches(MEDIA) && !(n as Element).querySelector(MEDIA))) ? change(n, i >= last) : into(n, inside, i >= last, m.removedNodes.length > 0)));
           }
         }
         if (!waiting) return drain();
@@ -578,7 +945,7 @@ export default defineContentScript({
           sliceLeft = FRESH_BUDGET_MS;
           sliceOpen = false;
         }
-        if ((!small || !fresh.size) && !urgent.size) return;
+        if ((!small || (!fresh.size && !newer.size)) && !urgent.size && !changed.size) return;
         if (sliceLeft <= 0 || scanner !== sc) return;
         // The new nodes are read at the page's new address (an opened post), as in a pass.
         if (isTop && location.href !== seenHref) {
@@ -602,11 +969,23 @@ export default defineContentScript({
           read(d, body);
           if ((stop = over())) break;
         }
+        // Then changed text on screen (the rest into `queue`, first).
+        if (!stop && changed.size) stop = readChanged(body, over, CHANGED_SCREEN_CAP);
         if (small && !stop) {
-          for (const n of fresh) {
-            fresh.delete(n);
-            read(n, body);
-            if (over()) break;
+          // What the page added after load first (see `newer`), then the oldest of `fresh`; the old first while it has had less time.
+          const oldWaits = queue.size > 0 || fresh.size > 0;
+          for (const q of newMs <= oldMs * NEW_RATIO ? [newer, fresh] : [fresh]) {
+            // (An empty set is not timed: the clock reads cost the slice its first read.)
+            if (!q.size) continue;
+            const qt = performance.now();
+            for (const n of q) {
+              q.delete(n);
+              read(n, body);
+              if ((stop = over())) break;
+            }
+            if (q === newer && oldWaits) newMs += performance.now() - qt;
+            else if (q === fresh) oldMs += performance.now() - qt;
+            if (stop) break;
           }
         }
         sliceLeft -= performance.now() - t0;
@@ -620,8 +999,8 @@ export default defineContentScript({
       // 0.1.15: once the parse is done (and again on load), the end of the page and what is on screen are read ahead of the backlog
       // (see `ahead`). A start after load read the whole body above already. Only a node waiting in the backlog moves (claimFor).
       const body0 = () => document.body ?? document.documentElement;
-      const waits = (x: Node) => queue.has(x) || fresh.has(x);
-      const take = (x: Node) => { queue.delete(x); fresh.delete(x); };
+      const waits = (x: Node) => queue.has(x) || fresh.has(x) || newer.has(x);
+      const take = (x: Node) => { queue.delete(x); fresh.delete(x); newer.delete(x); };
       const ef = new EndFirst(document, (t, onScreen) => {
         for (let x: Node | null = t; x && x !== document.body; x = x.parentNode) if (nearHead.has(x)) return null;
         const n = claimFor(t, body0(), waits, take, onScreen ? CLAIM_MAX : CLAIM_MAX_END);

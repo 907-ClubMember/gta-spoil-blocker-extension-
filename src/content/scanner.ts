@@ -7,7 +7,8 @@ import { BARE_PICTURES, type BlurStrength, type HideMode, type Pictures, type Re
 import { DEBUG_WHY } from '../debug-flag';
 import { unwrap, isPublisherChannel, isOfficialStoreHost, OFFICIAL_SITES, TRAILER_WORDS, handleOf, hasOfficialHandles, hasPublisherAccounts, isOfficialChannelLink, isOfficialHandle, isOfficialName, isEngineTool, searchEngine, isPublisherHandle, isResultsPage, isSearchStoreLink, isStoreLink, isStorePage, isYouTube } from '../adapters/official';
 import { discordMessageOf, inRedditGiphy, isLibraryGif, libraryLabel, libraryUrls, placeholderFor } from './gifs';
-import { isGamePlace, readChatPlace } from './discord-context';
+import { GTA as DISCORD_GAME, isGamePlace, readChatPlace } from './discord-context';
+import { mightMatch } from './changed-pacer';
 import { ACCESSORIES, EMBED_AUTHOR, LINK_PREVIEW, SOURCE_HOST, embedSource, embedText, embedsIn, isOfficialEmbed, textHash } from './discord-embeds';
 import { adapterFor } from '../adapters';
 import { channelOf, playerState, playerStep, type PlayerState } from './live-player';
@@ -15,12 +16,29 @@ import { TEXT } from '../text';
 import { AreaFinder, areaStep, type AreaState } from './removed-areas';
 
 /**
+ * A text as a number for a cache of what was read: its length and its hash (textHash), so another text is taken for it only when both
+ * match (a hash alone collides one time in about 4 billion; the length alone let every rewrite of the same length through).
+ */
+const textKey = (t: string): number => t.length * 0x100000000 + textHash(t);
+
+/** How much of a chat row's text tells one message from the next (a row reused for a new one). */
+const CHAT_ROW_KEY = 200;
+/**
  * Fast chat in a game place (a Discord channel whose server, channel, topic or category names the game, or a stream or video page about
  * the game): a line with one of these is covered out of caution even with no listed name. Elsewhere a chat line needs the name beside it.
  */
-/** How much of a chat row's text tells one message from the next (a row reused for a new one). */
-const CHAT_ROW_KEY = 200;
 const CHAT_PLACE_PHRASES = /\b(?:dies|died|killed|death\s+of|betrays|betrayed|the\s+ending|final\s+mission|the\s+twist|turns\s+out|last\s+mission)\b/i;
+/**
+ * The rules besides the matcher that text is covered by (CHAT_PLACE_PHRASES), or that make a place about the game (a Discord server named
+ * "GTA"): changed text that any can match is read at once (couldCover). Every regular expression constant in the content script and the
+ * site rules is one of these or exempt with a reason (text-rules.test.ts).
+ */
+export const TEXT_RULES: readonly RegExp[] = [CHAT_PLACE_PHRASES, DISCORD_GAME];
+/**
+ * The scanner's readers of a unit wider than one text, each read by Scanner.readUnits as it reads it: changed text is held only when none
+ * of their texts can match (content.ts). Every method that asks the matcher is one of these or exempt with a reason (read-units.test.ts).
+ */
+export const READ_UNITS = ['checkJoined', 'checkSuggestion', 'checkBio', 'checkName', 'checkNameplate', 'judgeEmbeds', 'spoilerPost'] as const;
 
 
 const POST_SELECTOR = 'article, [role="article"], li';
@@ -44,7 +62,7 @@ function playerIn(root: Element): HTMLVideoElement | null {
   return best;
 }
 /** Splits a glued name at its capitals and at letter-digit edges: "@ZorblaxQuuxDiesInZZG9" -> "Zorblax Quux Dies In ZZ G 9" (the @ is dropped). */
-function unglue(text: string): string {
+export function unglue(text: string): string {
   return text.replace(/@/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([A-Za-z])([0-9])/g, '$1 $2');
 }
 /** `text` with every copy of each query taken out (any case, any run of spaces between its words): only the words around the query are left. */
@@ -960,12 +978,12 @@ export class Scanner {
   private pass = 0;
   /** Set while a block is re-read because its heading turned up late: texts are looked at again even if unchanged. */
   private forceJoin = false;
-  /** Joined-text length last checked per block, so an unchanged block is not matched twice. */
-  private joined = new WeakMap<Element, number>();
+  /** Joined text last checked per block (at most MAX_POST_CHARS), so an unchanged block is not matched twice (its length alone let a same-length rewrite through). */
+  private joined = new WeakMap<Element, string>();
   /** The scan pass, cover count and context generation at which each block was last joined. */
   private joinedPass = new WeakMap<Element, { pass: number; changes: number; gen: number }>();
-  /** Per post: whether it is about the game, and the text length that answer was based on. */
-  private about = new WeakMap<Element, { len: number; why: Why | null }>();
+  /** Per post: whether it is about the game, and the text that answer was based on (textKey). */
+  private about = new WeakMap<Element, { key: number; why: Why | null }>();
   /** Posts holding a weak term that nothing has qualified yet; re-checked if a game mention arrives later. */
   private waiting = new WeakSet<Element>();
   /** When a wide unit's waiting units were last read again (judgePost): once per pass while nothing changed. */
@@ -1793,7 +1811,9 @@ export class Scanner {
     const own = cards && post.matches(cards) ? this.ownText(post, cards) : cards && this.splitPanel(post) ? this.panelText(post, cards) : this.textOf(post, POST_READ_CHARS);
     const text = `${own} ${this.unseenText(post)}`;
     const known = this.about.get(post);
-    if (known && known.len === text.length) return known.why;
+    // The text, not its length (review F of 40c9b009: a second name arriving in a rewrite of the same length was never judged).
+    const key = textKey(text);
+    if (known && known.key === key) return known.why;
     const f = this.matcher.inspect(text);
     // It names the game itself, or is a post on a known site that holds two different names from the
     // list or a name beside a hint word ("the mission with X", "i hate X").
@@ -1807,7 +1827,7 @@ export class Scanner {
       : sitePost && f.hinted ? 'hint'
       : this.repliesToMention(post) ? 'reply'
       : null;
-    this.about.set(post, { len: text.length, why });
+    this.about.set(post, { key, why });
     return why;
   }
 
@@ -2438,9 +2458,11 @@ export class Scanner {
     if (SKIP_TAGS.has(parent.tagName.toUpperCase()) || (parent as HTMLElement).isContentEditable || this.skip(parent, true)) return;
     // The whole bio at once: emoji, @mentions and hashtags split it into pieces, and the name and the story word may sit in different ones.
     const bio = parent.closest(this.opts.bio!) ?? parent;
-    const text = ` ${bio.textContent ?? ''} ${this.unseenText(bio, true)}`;
-    if (this.bioTried.get(bio) === text.length) return;
-    this.bioTried.set(bio, text.length);
+    const text = this.bioText(bio);
+    // The text, not its length: a bio rewritten to a spoiler of the same length is read again.
+    const key = textKey(text);
+    if (this.bioTried.get(bio) === key) return;
+    this.bioTried.set(bio, key);
     const found = this.matcher.inspect(text);
     if (!found.spoil.size || !(found.strong.size || found.weak.size || found.context)) return;
     // The game's name beside a spoiler word has no name of its own to decide on: it is covered as a spoiler phrase, like a post.
@@ -2460,22 +2482,33 @@ export class Scanner {
     if (SKIP_TAGS.has(parent.tagName.toUpperCase()) || (parent as HTMLElement).isContentEditable || this.skip(parent, true)) return;
     if (!this.matcher.judgesPosts) return this.checkNameplate(parent); // Light: words are not judged as spoiler phrases, a strong name still is
     const row = (this.opts.names && parent.closest(this.opts.names)) || parent;
-    // The pieces with a space between them: the display name and the handle run together in textContent, and a handle is only stripped after a space.
+    const text = this.nameText(row);
+    // The same text as last time: the spoiler-name rule has nothing new to read (a rename of the same length does), a nameplate may.
+    const key = textKey(text);
+    if (this.bioTried.get(row) === key) return this.checkNameplate(parent);
+    this.bioTried.set(row, key);
+    const res = this.nameSpoiler(text);
+    if (res) { this.hide(this.containerFor(parent), res, 'spoiler-word', parent); return; }
+    this.checkNameplate(parent);
+  }
+
+  /** A bio's words as checkBio reads them: the whole bio at once, and what it carries unseen. */
+  private bioText(bio: Element): string {
+    return ` ${bio.textContent ?? ''} ${this.unseenText(bio, true)}`;
+  }
+
+  /** A name row's words as checkName reads them: the pieces with a space between them (a display name and handle run together otherwise, and a handle is only stripped after a space). */
+  private nameText(row: Element): string {
     let text = ' ';
     const walker = this.doc.createTreeWalker(row, 4 /* SHOW_TEXT */);
     for (let n = walker.nextNode(); n && text.length < 400; n = walker.nextNode()) {
       const p = n.parentElement;
       if (p && !SKIP_TAGS.has(p.tagName.toUpperCase()) && !p.classList.contains('gsb-bar')) text += ` ${n.nodeValue ?? ''}`;
     }
-    // Same length as last time: the spoiler-name rule has nothing new to read, but a nameplate renamed to another name of that length does.
-    if (this.bioTried.get(row) === text.length) return this.checkNameplate(parent);
-    this.bioTried.set(row, text.length);
-    const res = this.nameSpoiler(text);
-    if (res) { this.hide(this.containerFor(parent), res, 'spoiler-word', parent); return; }
-    this.checkNameplate(parent);
+    return text;
   }
 
-  /** What a nameplate read last: its text, so a rename of the same length is read again (the row cache above keys on length). */
+  /** What a nameplate read last: its text, so any rename is read again (the row cache above, a key of the row's text, also lets the nameplate read on). */
   private nameplateRead = new WeakMap<Element, string>();
 
   /**
@@ -2548,7 +2581,7 @@ export class Scanner {
     return this.matcher.decide(found, true, true) ?? { categories: [...found.spoil], custom: false };
   }
 
-  /** What a bio or name row read last: its text length, so it is judged again only when it changed. */
+  /** What a bio or name row read last: its text (textKey), so it is judged again only when it changed. */
   private bioTried = new WeakMap<Element, number>();
 
   /** The words of a heading, without our own labels (a covered picture inside it). */
@@ -2593,8 +2626,8 @@ export class Scanner {
     return this.chatGame && !!this.chatLevel(el);
   }
 
-  /** "<b>First</b> <b>Last</b>" never matches piece by piece, so read the enclosing block as one text. */
-  private checkJoined(el: Element): void {
+  /** The block checkJoined reads `el` in (the closest joined unit, a short post's unit, a site card's unit), and how it reads it. */
+  private joinBlock(el: Element): { block: Element; inline: Element | null; card: Element | null } | null {
     // Inside a site post with no paragraph of its own (a tweet is a pile of spans), the post is the block.
     const join = el.closest(JOIN_SELECTOR);
     // A short wrapper of several posts: the post around the text (see containerFor).
@@ -2603,16 +2636,94 @@ export class Scanner {
     const card = !inline && cards ? el.closest(cards) : null;
     // A block of units (Adapter.subCards): the unit around the text, not the whole block.
     const block = inline ?? (card ? this.unitOf(card, el) : null);
-    if (!block || block.childElementCount === 0) return;
+    return block ? { block, inline, card } : null;
+  }
+
+  /**
+   * Could the scanner cover this text, anywhere on any page: a list term, the game's name, a spoiler word, a custom word (the matcher, on
+   * the text and its split form, see mightMatch), or a text rule (TEXT_RULES). Changed text is held only when it cannot (content.ts).
+   */
+  couldCover(text: string): boolean {
+    return mightMatch(text, (t) => this.matcher.inspect(t), (t) => this.matcher.splitLower(unglue(t).replace(/_/g, ' '))) || TEXT_RULES.some((r) => r.test(text));
+  }
+
+  /**
+   * A picture, video or canvas in the site post or the unit `el` is read in: such a post with few words is covered (mediaPost,
+   * MEDIA_ONLY_WORDS) whatever the words say, so changed text there is never held (content.ts; review B of 589b32ea).
+   */
+  nearMedia(el: Element): boolean {
+    const cards = this.opts.containers;
+    const post = cards ? el.closest(cards) : null;
+    const unit = this.joinBlock(el)?.block ?? null;
+    return [post, unit].some((b) => !!b && !!b.querySelector('img, video, picture, canvas'));
+  }
+
+  /** A nameplate's words as checkNameplate reads them. */
+  private nameplateText(np: Element): string {
+    return ` ${np.textContent ?? ''}`.slice(0, 400);
+  }
+
+  /**
+   * Every unit wider than `el`'s own text that the scanner reads it in (READ_UNITS), with its text as that reader reads it: the joined
+   * block or a site card's unit (checkJoined), a search suggestion's row (checkSuggestion; review D of 34b97419: 'Qux' beside 'zorblax' in
+   * another block of the row was held), a person's bio (checkBio), a name row (checkName), a nameplate (checkNameplate), a chat message's
+   * embeds (judgeEmbeds), and the post around it as the post judges read it (spoilerPost, also judgePost and repliesToMention). Changed
+   * text is held only when none of them can match (content.ts). No side effects.
+   */
+  readUnits(el: Element): { by: (typeof READ_UNITS)[number]; text: string; block: Element }[] {
+    const o = this.opts;
+    const out: { by: (typeof READ_UNITS)[number]; text: string; block: Element }[] = [];
+    const u = this.unitRead(el);
+    if (u) out.push({ by: 'checkJoined', text: u.text, block: u.block });
+    // Any row of a list under a box (suggestionOf), whether or not something is typed: read whole.
+    const row = el.closest('[role="listbox"] [role="option"], [role="listbox"] li, li.sbct');
+    if (row) {
+      const r = o.containers ? row.closest(o.containers) ?? row : row;
+      out.push({ by: 'checkSuggestion', text: this.textOf(r, 500), block: r });
+    }
+    if (o.bio && o.people && el.closest(o.people)) {
+      const bio = el.closest(o.bio);
+      if (bio) out.push({ by: 'checkBio', text: this.bioText(bio), block: bio });
+    }
+    if (this.inNames(el)) {
+      const r = (o.names && el.closest(o.names)) || el;
+      out.push({ by: 'checkName', text: this.nameText(r), block: r });
+    }
+    const np = o.nameplates ? el.closest(o.nameplates) : null;
+    if (np) out.push({ by: 'checkNameplate', text: this.nameplateText(np), block: np });
+    const msg = o.embeds && o.chatLines ? el.closest(o.chatLines) : null;
+    if (msg) for (const e of embedsIn(msg)) out.push({ by: 'judgeEmbeds', text: embedText(e), block: e });
+    const post = this.containerFor(el);
+    if (post !== el) out.push({ by: 'spoilerPost', text: `${this.textOf(post, POST_READ_CHARS)} ${this.unseenText(post)}`, block: post });
+    return out;
+  }
+
+  /** The block checkJoined reads `el` in (see joinBlock) and its text as read there, or null when it reads none: changed text is judged by it (content.ts). */
+  unitRead(el: Element): { block: Element; text: string } | null {
+    const j = this.joinBlock(el);
+    if (!j || j.block.childElementCount === 0) return null;
+    return { block: j.block, text: this.blockText(j.block, j.inline, j.card) };
+  }
+
+  private blockText(block: Element, inline: Element | null, card: Element | null): string {
+    const cards = this.opts.containers;
+    // A post's own words only: replies nested inside it are posts in their own right.
+    // A unit is no card of its own: all its words. A block of units read for words outside them: only those (each unit is read on its own).
+    return inline || !block.matches(cards!) ? this.joinedText(block) : card && block === card && this.hasUnits(card) ? this.outsideUnits(card) : this.ownText(block, cards!);
+  }
+
+  /** "<b>First</b> <b>Last</b>" never matches piece by piece, so read the enclosing block as one text. */
+  private checkJoined(el: Element): void {
+    const j = this.joinBlock(el);
+    if (!j || j.block.childElementCount === 0) return;
+    const { block, inline, card } = j;
     // Every piece of text in a card leads here: read the block once per pass, unless a cover went on or came off since.
     const seen = this.joinedPass.get(block);
     if (seen && seen.pass === this.pass && seen.changes === this.changes) return;
     this.joinedPass.set(block, { pass: this.pass, changes: this.changes, gen: this.contextGen });
-    // A post's own words only: replies nested inside it are posts in their own right.
-    // A unit is no card of its own: all its words. A block of units read for words outside them: only those (each unit is read on its own).
-    const text = inline || !block.matches(cards!) ? this.joinedText(block) : card && block === card && this.hasUnits(card) ? this.outsideUnits(card) : this.ownText(block, cards!);
-    if (text.length > MAX_POST_CHARS || (!this.forceJoin && seen?.gen === this.contextGen && this.joined.get(block) === text.length)) return;
-    this.joined.set(block, text.length);
+    const text = this.blockText(block, inline, card);
+    if (text.length > MAX_POST_CHARS || (!this.forceJoin && seen?.gen === this.contextGen && this.joined.get(block) === text)) return;
+    this.joined.set(block, text);
     const found = this.matcher.inspect(text);
     const ctx = this.pageAt(block) || this.gamePlace(block);
     const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(block));
@@ -3159,7 +3270,7 @@ export class Scanner {
     if (!res && label) res = this.matcher.match(label, this.pageContext);
     if (res) res = this.settleStrict(res, el);
     // Inside a known card the whole card goes, like it does for text; elsewhere, or with "pictures only", just the image.
-    if (res) { const card = this.pics.thumbsOnly ? null : this.cardFor(el); if (card) this.hide(card, res, 'alone', el); else this.hideMedia(el, res, 'alone', el); }
+    if (res) { const found = this.pics.thumbsOnly ? null : this.cardFor(el); const card = found && !this.cappedCard(found) ? found : null; if (card) this.hide(card, res, 'alone', el); else this.hideMedia(el, res, 'alone', el); }
     else {
       if (verdict === 'dirty') this.coverGif(el, label, text);
       this.mediaPost(el);
@@ -4012,7 +4123,7 @@ export class Scanner {
     if (this.officialTrailer(at)) return;
     // In a post or result card that is covered, or that names the game on a page about the game, every picture goes, whatever
     // its size (Reddit's 120 px search thumbnails, Google's result images). Avatars outside cards are not touched.
-    const card0 = this.opts.containers ? at.closest(this.opts.containers) : null;
+    const card0 = this.pictureCard(at);
     // In a block of units (Adapter.subCards) the picture's unit is its card: a covered card beside it does not take it.
     const card = card0 && this.unitOf(card0, at);
     // A layer laid over a card from elsewhere in the page (Twitch's hover preview, see overCards) goes with the card under it.
@@ -4024,7 +4135,9 @@ export class Scanner {
     // neither takes the row's cover with it nor is covered itself.
     if (card && this.outsideCoverPart(card, at)) return;
     // A row kept in view in a part-covered card (keepRows) is not under its cover: its pictures go by the usual rules (an icon stays).
-    const covered = !!card && this.wordsCovered(card) && !at.closest('[data-gsb-kept]');
+    // In a card longer than a post (Adapter.cardCap) a picture counts as covered for the words when a neighbour of it is.
+    const longCard = !card && c && this.cappedCard(c) ? c : null;
+    const covered = (!!card && this.wordsCovered(card) && !at.closest('[data-gsb-kept]')) || (!!longCard && this.coveredBeside(at, longCard));
     // A card covered by its own words covers everything in it, a reaction GIF too. In a card that only names the game, a
     // library GIF with a clean label is shown: its label decides.
     if (!covered && this.mediaVerdict(el) === 'clean') return;
@@ -4039,7 +4152,7 @@ export class Scanner {
     // result pictures from 72 px, avatars 40-55 px, emoji and icons under 40 px). The size first: reading the card for the name
     // costs a whole-card read, and on a big card with many icons that ran for each one on every text piece (a scan of one Google
     // card took over a second, and content arriving later waited behind it).
-    const whole = !!card && (covered || (page && this.bigMedia(el, NAMED_CARD_MEDIA_PX) && this.namedBeside(at, own)));
+    const whole = (!!card && (covered || (page && this.bigMedia(el, NAMED_CARD_MEDIA_PX) && this.namedBeside(at, own)))) || (!!longCard && covered);
     if (!(whole || this.bigMedia(el) || this.isThumb(el))) return;
     // A part of the page that is not its subject (recommended videos, other games' capsules) is judged on its own words.
     const apart = !!this.opts.apart && !!at.closest(this.opts.apart);
@@ -4212,7 +4325,11 @@ export class Scanner {
     if (link && names(`${this.textOf(link, 2000)} ${link.getAttribute('title') ?? ''} ${safe(link.getAttribute('href') ?? '').replace(/[/?&=#_+.-]+/g, ' ')}`)) return true;
     // A site post is read the way the post judge reads it: its own words, not the replies nested in it.
     const cards = this.opts.containers;
-    const block = cards ? this.cardFor(el) : null;
+    const found = cards ? this.cardFor(el) : null;
+    // A card longer than a post (Adapter.cardCap) is not read as the picture's post: its words belong to the paragraphs, not to every picture in it.
+    // The picture's own neighbourhood is read: the lines beside it and the article's headings (review: a heading naming the game, a hero picture).
+    if (found && this.cappedCard(found)) return names(this.neighbourText(el, found));
+    const block = found;
     if (!cards || !block) return false;
     // In a block of units (Adapter.subCards) only the picture's own unit.
     const card = this.unitOf(block, el);
@@ -4469,7 +4586,24 @@ export class Scanner {
    * is every list in the page, a carousel's too), unless it is a thread hidden under the reply option (Facebook's post: as before).
    */
   private keepFor(h: Element): string {
-    return this.ownMain(h) && !(this.flagged && h.matches(this.opts.threads!)) ? this.opts.commentsInside! : this.keepSel;
+    return this.ownMain(h) && !(this.flagged && h.matches(this.opts.threads!)) ? this.mainKeep() : this.keepSel;
+  }
+
+  private formHoldsContent(f: Element): boolean {
+    if (f.querySelector('img, video, picture, canvas, svg image, iframe, object, embed')) return true;
+    for (const e of f.querySelectorAll(FIELD_SELECTOR)) {
+      const own = e.matches('textarea, input, select') ? (e as HTMLInputElement).value || (e.tagName === 'TEXTAREA' ? e.textContent : '') : e.textContent;
+      if (own && own.trim()) return true;
+      const hint = `${e.getAttribute('placeholder') ?? ''} ${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('title') ?? ''}`;
+      const f2 = this.matcher.inspect(hint);
+      if (f2.strong.size || f2.weak.size || f2.spoil.size || f2.game) return true;
+    }
+    return false;
+  }
+
+  /** The comments of the main post, and its comment form (a box with a field in it): left out of the post's own-content cover, so the form stays usable. */
+  private mainKeep(): string {
+    return `${this.opts.commentsInside!}, form:has(${FIELD_SELECTOR})`;
   }
 
   private onPath(el: Element): boolean {
@@ -4496,6 +4630,11 @@ export class Scanner {
   /** Uncover the reply or reply area `k` inside the hidden thread `h`. False if `h` had to stay whole. */
   private open(h: Element, k: Element): boolean {
     if (this.whole.has(h)) return false;
+    // A comment form is kept only when it holds nothing of the post: no picture, no text typed or quoted in a field, no placeholder naming a listed name.
+    if (k.matches('form') && this.formHoldsContent(k)) {
+      this.widen(h);
+      return false;
+    }
     const path: Element[] = [];
     for (let p = k.parentElement; p && p !== h; p = p.parentElement) path.push(p);
     if (this.looseText(h) || path.some((p) => this.looseText(p)) || (h.getAttribute('data-gsb') === 'blur' && [h, ...path].some((p) => this.boxless(p, k, path)))) {
@@ -4591,7 +4730,7 @@ export class Scanner {
     const card = (!split && panel) || (split && !(inCard && panel!.contains(inCard)) ? panel : null) || inCard || null;
     // 0.1.8: a comment inside the main post of ownMain that is no card of its own (a dialog's list entry, two comments on Instagram's live page)
     // is its own unit, the one kept out of the post's cover (keepFor), so it is judged as a reply of the post, not as the post.
-    if (card && card !== el && this.ownMain(card) && this.keepFor(card) === this.opts.commentsInside) {
+    if (card && card !== el && this.ownMain(card) && this.keepFor(card) === this.mainKeep()) {
       const c = this.replyUnder(card, el);
       if (c) return c;
     }
@@ -4612,6 +4751,65 @@ export class Scanner {
 
   private splitPanel(el: Element): boolean {
     return !!this.opts.panels && el.matches(this.opts.panels) && this.isSplitPanel(el);
+  }
+
+  /**
+   * The card around a picture, for the picture paths: the site's card, but not one longer than a post that the site names only by a bare tag
+   * (Adapter.cardCap: a long Twitch or Kick article is an info page, not a post). Such a card is read by the general rules for its words, and its
+   * pictures go by their own name, label and size, not as "the card with covered words" (0.1.11 audit item 5).
+   */
+  private pictureCard(el: Element): Element | null {
+    const card = this.opts.containers ? el.closest(this.opts.containers) : null;
+    return card && this.cappedCard(card) ? null : card;
+  }
+
+  /** The elements a picture in a card longer than a post sits beside: up to six before and six after it at each level up to the card, and the wrappers. */
+  private neighbours(el: Element, card: Element): { near: Element[]; wrappers: Element[] } {
+    const near: Element[] = [];
+    const wrappers: Element[] = [];
+    let depth = 0;
+    for (let n: Element | null = el; n && n !== card && depth < 8; n = n.parentElement, depth++) {
+      if (n !== el) wrappers.push(n);
+      let before = n.previousElementSibling;
+      let after = n.nextElementSibling;
+      for (let i = 0; i < 6; i++, before = before?.previousElementSibling ?? null, after = after?.nextElementSibling ?? null) {
+        if (before) near.push(before);
+        if (after) near.push(after);
+      }
+    }
+    return { near, wrappers };
+  }
+
+  /** What a picture in a card longer than a post sits beside, as words: its neighbours, the labels of its wrappers, and every heading of the card. */
+  private neighbourText(el: Element, card: Element): string {
+    const { near, wrappers } = this.neighbours(el, card);
+    let out = '';
+    for (const e of near) out += ` ${this.textOf(e, 1000)}`;
+    for (const w of wrappers) out += ` ${w.getAttribute('aria-label') ?? ''}`;
+    for (const h of [...card.querySelectorAll(HEADING_SELECTOR)].slice(0, 30)) out += ` ${this.textOf(h, 400)}`;
+    return `${out} ${this.unseenText(el, true)}`;
+  }
+
+  /** Is a neighbour of a picture in a card longer than a post covered for its words (a covered paragraph beside it)? */
+  private coveredBeside(el: Element, card: Element): boolean {
+    for (const e of this.neighbours(el, card).near) {
+      for (const c of [e, ...e.querySelectorAll('[data-gsb]')]) {
+        const why = c.getAttribute('data-gsb-why');
+        if (c.hasAttribute('data-gsb') && why && why !== 'near-game' && why !== 'media' && !c.hasAttribute('data-gsb-name')) return true;
+      }
+    }
+    return false;
+  }
+
+  private capMemo = new WeakMap<Element, { pass: number; capped: boolean }>();
+  private cappedCard(card: Element): boolean {
+    const cap = this.opts.cardCap;
+    if (!cap || !card.matches(cap)) return false;
+    const seen = this.capMemo.get(card);
+    if (seen && seen.pass === this.pass) return seen.capped;
+    const capped = (card.textContent?.length ?? 0) > MAX_POST_CHARS;
+    this.capMemo.set(card, { pass: this.pass, capped });
+    return capped;
   }
 
   /** A panel that holds results (Adapter.panelSplit: two or more cards with a linked title): each result is its own card. */
@@ -5273,8 +5471,14 @@ export class Scanner {
     else if (this.opts.main && this.coverKey === null && (why === 'near-game' || why === 'media') && this.mc?.el?.contains(el) && this.holdsPictureCover(this.mc.el)) this.startCover();
     // Part of a post or result card is covered (its title, say): every picture in that card goes too, whatever its size.
     if (this.pics.hideImages && this.opts.containers && why !== 'near-game' && why !== 'media') {
-      const card = el.closest(this.opts.containers);
+      const card = this.pictureCard(el);
       if (card && card !== el) this.mediaIn(card).forEach((m) => this.nearGame(m));
+      // A card longer than a post is not swept whole: the pictures beside the covered part are looked at again (a picture judged before this cover
+      // came, or text that arrives later: review 3).
+      else if (!card && this.opts.containers) {
+        const raw = el.closest(this.opts.containers);
+        if (raw && raw !== el && this.cappedCard(raw)) for (const e of this.neighbours(el, raw).near) (e.matches('img, video') ? [e] : this.mediaIn(e)).forEach((m) => this.nearGame(m));
+      }
     }
   }
 
