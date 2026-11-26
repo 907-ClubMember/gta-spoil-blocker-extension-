@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.19
+
+### Highlights
+
+- Reddit pages no longer show listed names uncovered for a moment while they load; they are covered much sooner.
+- One error on a page no longer stops the rest of the page from being checked.
+
+### Fixes
+
+#### All sites
+- One error on a page no longer stops the rest of the page from being checked.
+
+#### Reddit
+- Reddit pages no longer show listed names uncovered for a moment while they load; they are covered much sooner.
+
+### Known issue
+
+- Text far below the visible area (for example far down a long thread) can be covered later than before.
+
 ## 0.1.18
 
 ### Highlights

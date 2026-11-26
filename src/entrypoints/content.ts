@@ -153,6 +153,18 @@ export default defineContentScript({
     /** `newer` goes first while its time is at most this share of the old backlog's (a heavy read overruns by up to its own length). */
     const NEW_RATIO = 0.6;
     /**
+     * While the page is parsed, what is on screen is read right before each paint (see paintLook): points across and down the window; ms a
+     * look before the first paint (paint-window, saved pages: 150 ms put the saved Google page's first paint 96 ms later, 50 ms 92 ms) and
+     * after it (50 ms left a part of the saved Reddit thread for the next frame, painted uncovered for one long frame: 0.4 s, 2 loads in 3);
+     * the biggest part read.
+     */
+    const PAINT_X = 6, PAINT_Y = 12, PAINT_FIRST_MS = 50, PAINT_LOOK_MS = 150, PAINT_MAX_ELS = 600;
+    /** The animation frame asked for the next look (0: none). */
+    let paintFrame = 0;
+    /** DOMContentLoaded has run: the look runs until then (review P1 of 2ac745ef: the parser's last part comes while the page is 'interactive'). */
+    let dclSeen = document.readyState !== 'loading';
+    if (!dclSeen) document.addEventListener('DOMContentLoaded', () => { dclSeen = true; }, { once: true });
+    /**
      * Nodes that are, hold or land inside a dialog ([role=dialog], dialog, [aria-modal=true]) while a backlog waits (0.1.13), in the order they
      * came: read first in the callbacks (the shared slice) and in each pass (for at most a quarter of its budget, so the backlog keeps the rest).
      */
@@ -185,8 +197,14 @@ export default defineContentScript({
     const TICKER_LETTERS = 3;
     let changedTokens = CHANGED_BURST;
     let changedAt = 0;
-    /** Changed text whose read threw once (see readChanged). */
-    const rethrown = new WeakSet<Node>();
+    /**
+     * Nodes whose read threw once in this scan (readChanged, readOrRequeue, a page watcher record). One set for all, for the whole scan: a node
+     * that throws again, even much later, is split into its parts (one with none is left unread). Accepted (review Q2 of 5d209622): a second
+     * throw on the same node is rare, and a set per pass could retry a node that always throws forever.
+     */
+    let rethrown = new WeakSet<Node>();
+    /** Nodes handed to a read by the backlog's loops (see readOrRequeue and afterThrow). */
+    let handled = 0;
     /** Changed text read again at most once per CHANGED_READ_MS, the last change in the window read at its end (src/content/changed-pacer.ts). */
     const pacer = new ChangedPacer();
     let pacerTimer: number | undefined;
@@ -336,9 +354,14 @@ export default defineContentScript({
       fresh = new Set();
       newer = new Set();
       newMs = oldMs = 0;
+      // A look asked for by the scan that ends (a new start asks for its own).
+      if (paintFrame) cancelAnimationFrame(paintFrame);
+      paintFrame = 0;
       urgent = new Set();
       changed = new Set();
       frontAt = new WeakMap();
+      // A node that threw in the scan that ends gets its one more read in a new one (review Q1 of 0553a8ba).
+      rethrown = new WeakSet();
       pacer.clear();
       judged.clear();
       changedTimes = new WeakMap();
@@ -472,8 +495,20 @@ export default defineContentScript({
       // Our stylesheet or a cover mark removed by the page or another extension is put back, at most once a second.
       staleTimers.push(window.setInterval(() => { if (scanner === sc) sc.repair(); }, 1000));
       if (!isTop) sc.setOuterContext(outer);
-      report(sc.refreshPageContext());
-      if (document.body) sc.scan(document.body);
+      // The first look at the page and its first read: a throw there (odd markup) must not end this start (review Q1 of 0553a8ba: start()
+      // began again on the built-in list, so the page lost the user's list; when that read threw too, the page was never watched). The page
+      // waits in the backlog for the first pass instead, part by part, and the throw reaches the browser once the page watcher is set up.
+      // The list is kept as the last good one: a read that throws is a fault of the page or the scanner, not a damaged list (a list that made
+      // every read throw used to fall back to the built-in one; it now stays: the page is read part by part with it).
+      let firstThrow: { e: unknown } | undefined;
+      try {
+        report(sc.refreshPageContext());
+        if (document.body) sc.scan(document.body);
+      } catch (e) {
+        firstThrow = { e };
+        // Its parts, one by one (a read of the whole body that throws every time would never be read).
+        if (document.body) for (const c of document.body.childNodes) queue.add(c);
+      }
       sc.holdPlaying();
       // Read the whole page without error: a later failed start falls back to this list.
       goodList = list;
@@ -493,7 +528,105 @@ export default defineContentScript({
 
       // New content is checked inside the observer callback, which runs before the browser paints it,
       // so a spoiler is hidden before it is ever shown. Work past the budget is put off so pages stay smooth.
+      /**
+       * What waits in the backlog under a grid of points over the window is read now: the outermost waiting part under each point (at most
+       * PAINT_MAX_ELS elements, see claimFor), for up to PAINT_FIRST_MS before the page's first paint, PAINT_LOOK_MS after it. Run in an
+       * animation frame, so right before the browser paints. A part read whole takes what waits inside it out of the backlog, and a point
+       * over it is passed (review P1 of 2ac745ef: claimFor takes the outermost waiting part, what waited inside stayed, and each point over it
+       * read the next level down: 61 reads, 442 elements, for a 77-element page); under a point with no waiting part, the element's own
+       * texts that wait (claimFor walks up only: a name put in a line read before waited 540 ms).
+       */
+      const paintLook = (body: HTMLElement) => {
+        // Nothing waits: nothing to look for (72 hit tests a frame).
+        if (!queue.size && !fresh.size && !newer.size) return;
+        const t0 = performance.now();
+        const most = performance.getEntriesByType('paint').length ? PAINT_LOOK_MS : PAINT_FIRST_MS;
+        const waits = (x: Node) => queue.has(x) || fresh.has(x) || newer.has(x);
+        const take = (x: Node) => { queue.delete(x); fresh.delete(x); newer.delete(x); };
+        const vw = window.innerWidth, vh = window.innerHeight;
+        // Every hit test first, then the reads (review P2 of 2ac745ef: a read that covers dirties style, and each hit test after it laid the
+        // page out again); the time is looked at before each read.
+        const hits = new Set<Element>();
+        for (let y = 0; y < PAINT_Y; y++) for (let x = 0; x < PAINT_X; x++) {
+          const e = document.elementFromPoint(((x + 0.5) * vw) / PAINT_X, ((y + 0.5) * vh) / PAINT_Y);
+          if (e && e !== body && e !== document.documentElement) hits.add(e);
+        }
+        const done: Node[] = [];
+        // A read that throws goes back to `fresh` after the look (readOrRequeue), and the look goes on.
+        for (const e of hits) {
+          if (performance.now() - t0 > most) return;
+          if (done.some((d) => d.contains(e))) continue;
+          const n = claimFor(e, body, waits, take, PAINT_MAX_ELS);
+          if (n) {
+            // The walk below only after a read that worked (review P2b of 650882c5: a part that threw twice is split into its parts, back in
+            // the backlog, and the walk took them out again: nothing in it was read again).
+            if (!readOrRequeue(n, body)) continue;
+            done.push(n);
+            const w = document.createTreeWalker(n, 5 /* NodeFilter.SHOW_ELEMENT | SHOW_TEXT */);
+            for (let d = w.nextNode(); d; d = w.nextNode()) if (waits(d)) take(d);
+          } else {
+            for (let c = e.firstChild; c; c = c.nextSibling) {
+              if (c.nodeType === 3 && waits(c)) {
+                if (performance.now() - t0 > most) return;
+                take(c);
+                readOrRequeue(c, body);
+              }
+            }
+          }
+        }
+      };
       /** Reads `n` if it is still in the page. */
+      /**
+       * `read` in the backlog's loops (a pass, the page watcher's slice; `handled` counts them). A read that throws does not end the loop: its node
+       * goes back to its set after the pass (`back`: a dialog stays ahead of the backlog, review Q1 of 0553a8ba) once (a node that throws again
+       * is split into its parts, down to nodes with none, which are left unread) and the next pass is asked for (review P2 of the paint look: the throw ended
+       * the pass before the next one was asked for, and on a page quiet after load the rest of the backlog was never read: in one run the
+       * saved Bing page kept 6 named results uncovered).
+       */
+      // Review Q2 of 5d209622: a read that threw was thrown on at once, so it ended the pass, and a page where every read throws took one node
+      // a pass (300 posts: 3600 passes and 3600 errors). Now the pass goes on; the first throw of the scan reaches the browser, the others are
+      // told in one warning once the backlog is read (fixed words and the error's kind only: see no-error-text-logged).
+      let readThrew = false;
+      let untold: Error | undefined;
+      let leftUnread = false;
+      /** Nodes whose read threw in this pass or callback, back in their sets once it is over (read again in the next pass, not this one). */
+      const putBack: [Node, Set<Node>][] = [];
+      const flushBack = () => {
+        for (const [n, s] of putBack) s.add(n);
+        putBack.length = 0;
+      };
+      const readOrRequeue = (n: Node, body: HTMLElement, back: Set<Node> = fresh) => {
+        handled++;
+        try {
+          read(n, body);
+          return true;
+        } catch (e) {
+          const sr = n.nodeType === 1 ? (n as Element).shadowRoot : null;
+          if (!rethrown.has(n)) {
+            rethrown.add(n);
+            putBack.push([n, back]);
+          } else if (n.firstChild || sr) {
+            // Twice: its parts, one by one (review Q1: a wrapper of 50 posts with one bad post dropped all 50; a part that throws twice is
+            // split again, down to a node with nothing in it, which is dropped: finite). A host's own shadow root is one of its parts (review Q2).
+            for (let c: ChildNode | null = n.firstChild; c; c = c.nextSibling) fresh.add(c);
+            if (sr) fresh.add(sr);
+          } else leftUnread = true;
+          if (readThrew) untold = e as Error;
+          else {
+            readThrew = true;
+            window.setTimeout(() => { throw e; }, 0);
+          }
+          if (timer === undefined && scanner === sc) timer = window.setTimeout(drain, 0);
+          return false;
+        }
+      };
+      /** The reads that threw after the first, and parts left unread: a warning each, once the backlog is read (see readOrRequeue). */
+      const tellReadThrows = () => {
+        if (untold) console.warn('Spoiler Blocker: more reads failed on this page', untold?.name);
+        if (leftUnread) console.warn('Spoiler Blocker: some parts that failed twice are left unread');
+        untold = undefined;
+        leftUnread = false;
+      };
       const read = (n: Node, body: HTMLElement) => {
         // Inside a shadow root (Reddit's chat) body.contains says no, so the node's own root decides.
         if (n.isConnected && (n === body || body.contains(n) || (n.getRootNode() as ShadowRoot).host)) sc.scan(n);
@@ -712,7 +845,8 @@ export default defineContentScript({
               pacer.read(key, now);
               if (!could) changedTokens--;
               reading = n;
-              read(n, body);
+              // As the backlog's reads (review Q2 of 5d209622): a throw puts it back once, then splits it, and does not end the slice.
+              readOrRequeue(n, body);
               reading = null;
               stop = over();
             }
@@ -734,11 +868,35 @@ export default defineContentScript({
         }
         return stop;
       };
-      const drain = () => {
+      /** Kinds of a pass's own steps that threw in this scan (each reported once: see `step`). */
+      const stepThrew = new Set<string>();
+      /**
+       * A pass's own step (the address, the page's context, the recheck, the end-first look, the tidying after the reads): one that throws
+       * does not keep the pass from its reads (review Q1: a page-context look that threw in every pass asked for the next pass at once, 1000
+       * passes a second, and the backlog was never read). The throw reaches the browser once a kind, after the pass; `failed` is the step's
+       * own way out, each time it throws.
+       */
+      const step = (kind: string, f: () => void, failed?: () => void) => {
+        try {
+          f();
+        } catch (e) {
+          try {
+            failed?.();
+          } catch {
+            // Its way out threw too: the pass goes on to its reads all the same.
+          }
+          if (stepThrew.has(kind)) return;
+          stepThrew.add(kind);
+          window.setTimeout(() => { throw e; }, 0);
+        }
+      };
+      const drainPass = () => {
+        // Called at once (a callback with nothing waiting) while a pass was asked for (after a throw): that one is not needed now.
+        clearTimeout(timer);
         timer = undefined;
         if (scanner !== sc) return; // a newer start has taken over: this pass belongs to a scan that was cleared
         if (isTop && location.href !== seenHref) {
-          checkAddress(); // single-page sites change address without a reload
+          step('address', checkAddress); // single-page sites change address without a reload
           if (scanner !== sc) return; // the answer changed and start() began again: do not touch the old scan
         }
         const body = document.body;
@@ -746,11 +904,18 @@ export default defineContentScript({
         // When the title or heading has just shown the page is about the game, the scanner reads everything again
         // (weak terms seen earlier now count). What is queued is still read, then on to the end of the pass,
         // so the tab title, screen readers and the count follow at once.
-        report(sc.refreshPageContext());
-        sc.recheckNow();
+        // A page that turned about the game is read again whole (rescanAll); when that throws, the first time, its parts wait in the backlog
+        // to be read in the new context (review Q1 of 7de197e4: a weak name read before stayed uncovered), and so do the shadow roots already
+        // read, which a read of the body does not enter again (review Q1 of f55b2db0).
+        step('context', () => report(sc.refreshPageContext()), () => {
+          if (stepThrew.has('context') || !document.body) return;
+          for (const c of document.body.childNodes) queue.add(c);
+          for (const r of sc.knownShadows()) queue.add(r);
+        });
+        step('recheck', () => sc.recheckNow());
         // A page that turned neutral (a single-page site going back to its results) waits for a second look: a quiet page brings no change
         // to drive one, so it is made here, a moment later (a quick turn back to the game still never shows a cover go and come).
-        confirmSoon(sc);
+        step('confirm', () => confirmSoon(sc));
         // The budget is for reading nodes, timed after the page judge above (0.1.11: on a page of 6000 posts that took about 5 ms of every
         // pass, so a busy page's backlog was read a few nodes a pass).
         // The parse is done: a few more waiting nodes to move ahead (at most END_FIRST_STEP_MS of collecting a pass, resumed in the next).
@@ -760,7 +925,10 @@ export default defineContentScript({
           nearHead.clear();
           for (const q of [queue, fresh]) for (const n of q) { if (nearHead.size >= HEAD_N) break; nearHead.add(n); }
           // A big part (over BIG_READ) takes turns with the backlog even from the first look (see CLAIM_MAX).
-          ef.step((n, first) => (first && !bigAhead.has(n) ? ahead : aheadRest).add(n));
+          // A step that throws ends the look for this scan, its held parts back to the backlog (review Q1 of 7de197e4: still 'collecting', it
+          // asked for a pass every 0 ms with nothing to read).
+          const moveAhead = (n: Node, first: boolean) => (first && !bigAhead.has(n) ? ahead : aheadRest).add(n);
+          step('end-first', () => ef.step(moveAhead), () => ef.stop(moveAhead));
           // Only needed while a step looks: let the page's nodes go between steps.
           nearHead.clear();
         }
@@ -799,7 +967,7 @@ export default defineContentScript({
             if (big && aheadRead > 0) { over = true; break; }
             if (moved) aheadRead++;
             q.delete(n);
-            read(n, body);
+            readOrRequeue(n, body, q);
             const used = performance.now() - t0;
             if ((over = used > budget || big) || used > share) break;
           }
@@ -814,18 +982,53 @@ export default defineContentScript({
           else if (q === queue || q === fresh) oldMs += performance.now() - qt;
           if (over) break;
         }
-        if (urgent.size || changed.size || ahead.size || aheadRest.size || newer.size || queue.size || fresh.size || ef?.state === 'collecting') timer = window.setTimeout(drain, 0);
-        else tellCount();
-        sc.quiet();
+        flushBack();
+        if (urgent.size || changed.size || ahead.size || aheadRest.size || newer.size || queue.size || fresh.size || ef?.state === 'collecting') {
+          // A read that threw in this pass has asked for the next one already.
+          if (timer === undefined) timer = window.setTimeout(drain, 0);
+        } else {
+          step('count', tellCount);
+          tellReadThrows();
+        }
+        step('quiet', () => sc.quiet());
         // Reading every cover on a big page costs a few milliseconds: only when one was put on or taken off since last time.
         if (sc.changes !== synced) {
           synced = sc.changes;
-          syncReaders(document);
+          step('readers', () => syncReaders(document));
         }
-        guardTitle();
+        step('title', guardTitle);
         // Not pushed back by every change: a page that keeps changing would otherwise never get its leftover labels cleaned.
         pruneTimer ??= window.setTimeout(() => { pruneTimer = undefined; sc.prune(); }, 1000);
-        watchLate();
+        step('late', watchLate);
+      };
+      /** Something waits to be read (see `afterThrow`). */
+      const backlogWaits = () => urgent.size > 0 || changed.size > 0 || ahead.size > 0 || aheadRest.size > 0 || newer.size > 0 || queue.size > 0 || fresh.size > 0;
+      /**
+       * A pass or a page watcher callback that throws (a read, the page's context, the end-first look, anything in it) still reaches the
+       * browser, but the next pass is asked for while something waits (review P2 of the paint look: a throw ended the pass before the next one
+       * was asked for, and on a page quiet after load the backlog was never read again). Only on a throw: a pass that returns early (no body
+       * yet, an old scan) asks for nothing.
+       */
+      // Passes in a row that threw with no node handled (see afterThrow).
+      let idleThrows = 0;
+      const afterThrow = (progress: boolean) => {
+        if (scanner !== sc || timer !== undefined || !backlogWaits()) return;
+        // A throw that handled a node (read, put back once, split or dropped) goes on at once; one that handled none (something else in the
+        // pass throws every time) waits longer each time, 4 ms to 1 s, so it can never spin.
+        idleThrows = progress ? 0 : idleThrows + 1;
+        timer = window.setTimeout(drain, idleThrows ? Math.min(1000, 4 * 2 ** (idleThrows - 1)) : 0);
+      };
+      const drain = () => {
+        const before = handled;
+        let ok = false;
+        try {
+          drainPass();
+          ok = true;
+        } finally {
+          flushBack();
+          if (!ok) afterThrow(handled > before);
+          else idleThrows = 0;
+        }
       };
       lookNow = () => { if (scanner === sc) drain(); };
 
@@ -854,7 +1057,9 @@ export default defineContentScript({
       watchLate();
       for (const ms of [3000, 10000]) staleTimers.push(window.setTimeout(() => lookLate(true), ms));
 
-      observer = new MutationObserver((muts) => {
+      /** A throw of a record in the last callback, for the browser once the callback is done (see onChanges). */
+      let callbackThrow: { e: unknown } | undefined;
+      const onChanges = (muts: MutationRecord[]) => {
         // With nothing waiting, as always: into the queue and read now. While earlier changes still wait (a page still read in pieces, a busy
         // page), the new nodes go after the other new ones (`fresh`, in the order they came), and after a small change the oldest of those are
         // read now, ahead of the backlog, before the browser paints them. Behind the backlog they stayed in view for seconds (0.1.11: the tiles
@@ -865,8 +1070,12 @@ export default defineContentScript({
         // nodes of the callback and the last DIALOG_TAIL of each change.
         let added = 0;
         let changes = 0;
+        // Elements and texts put in by this callback's changes (the on-screen look below runs only when there are any).
+        let parsedEls = 0;
         const into = (n: Node, inDialog: boolean, tail: boolean, replaces = false) => {
           const e = n.nodeType === 1 ? (n as Element) : n.parentElement;
+          // Our own bars and labels are not parsed content: they ask for no look (review P2 of 2ac745ef).
+          if ((n.nodeType === 1 || n.nodeType === 3) && !e?.closest(OWN_NODES)) parsedEls++;
           // Our own go with the backlog, as before 0.1.11.
           // Not also read as changed text (see change).
           changed.delete(n);
@@ -915,29 +1124,65 @@ export default defineContentScript({
           changed.add(n);
         };
         const seenAt = performance.now();
+        // A record whose handling throws (a link read, a dialog check) does not skip the records after it (review Q1 of 0553a8ba: their nodes
+        // never reached the backlog): its nodes go to the backlog, the others are handled, and the throw reaches the browser after the rest of
+        // the callback (the reads before paint: see the page watcher below).
         for (const m of muts) {
-          if (m.type === 'characterData') {
-            noteChange(m.target.parentNode, seenAt);
-            change(m.target, false);
+          try {
+            if (m.type === 'characterData') {
+              noteChange(m.target.parentNode, seenAt);
+              change(m.target, false);
+            }
+            // A reused card (YouTube recycles its tiles) gets a new link address without a new element: spoiler accounts are
+            // read from links, so a changed address is checked for those only (watched only while any account is listed).
+            else if (m.type === 'attributes') {
+              const t = m.target as Element;
+              if (m.attributeName === 'href') sc.linkChanged(t);
+              else if (t.matches('img, video')) into(t, landsInDialog(t), false);
+            }
+            else if (m.addedNodes.length) {
+              // An element's text replaced (a node or two put in where others were taken out): changed text too. Not a picture: put in at a
+              // size it has not got yet, read at once it was covered as a tiny icon (the saved IGN game page's 145x16 thumbnail).
+              const swap = m.removedNodes.length > 0 && m.addedNodes.length <= 2;
+              if (swap) noteChange(m.target, seenAt);
+              const inside = landsInDialog(m.target);
+              const last = m.addedNodes.length - DIALOG_TAIL;
+              // Past CHANGED_MAX (or with nothing waiting) straight to the backlog, as before: a ticker swapping 500 lines a frame paid a
+              // picture check and a dialog check for each (5% fewer frames than base).
+              m.addedNodes.forEach((n, i) => (swap && waiting && changes < CHANGED_MAX && (n.nodeType === 3 || (n.nodeType === 1 && !(n as Element).matches(MEDIA) && !(n as Element).querySelector(MEDIA))) ? change(n, i >= last) : into(n, inside, i >= last, m.removedNodes.length > 0)));
+            }
+          } catch (e) {
+            // Its target and what it put in (review Q1: with <html> as the target, a read of it does nothing, and the record's nodes were
+            // lost), to the backlog.
+            if (m.target !== document.documentElement && !rethrown.has(m.target)) {
+              rethrown.add(m.target);
+              fresh.add(m.target);
+            }
+            m.addedNodes.forEach((n) => { if (!queue.has(n) && !fresh.has(n) && !newer.has(n) && !urgent.has(n)) fresh.add(n); });
+            if (timer === undefined) timer = window.setTimeout(drain, 0);
+            callbackThrow ??= { e };
           }
-          // A reused card (YouTube recycles its tiles) gets a new link address without a new element: spoiler accounts are
-          // read from links, so a changed address is checked for those only (watched only while any account is listed).
-          else if (m.type === 'attributes') {
-            const t = m.target as Element;
-            if (m.attributeName === 'href') sc.linkChanged(t);
-            else if (t.matches('img, video')) into(t, landsInDialog(t), false);
-          }
-          else if (m.addedNodes.length) {
-            // An element's text replaced (a node or two put in where others were taken out): changed text too. Not a picture: put in at a
-            // size it has not got yet, read at once it was covered as a tiny icon (the saved IGN game page's 145x16 thumbnail).
-            const swap = m.removedNodes.length > 0 && m.addedNodes.length <= 2;
-            if (swap) noteChange(m.target, seenAt);
-            const inside = landsInDialog(m.target);
-            const last = m.addedNodes.length - DIALOG_TAIL;
-            // Past CHANGED_MAX (or with nothing waiting) straight to the backlog, as before: a ticker swapping 500 lines a frame paid a
-            // picture check and a dialog check for each (5% fewer frames than base).
-            m.addedNodes.forEach((n, i) => (swap && waiting && changes < CHANGED_MAX && (n.nodeType === 3 || (n.nodeType === 1 && !(n as Element).matches(MEDIA) && !(n as Element).querySelector(MEDIA))) ? change(n, i >= last) : into(n, inside, i >= last, m.removedNodes.length > 0)));
-          }
+        }
+        // While the page is parsed, what it put in on screen is read before the browser paints it (item 4, paint-window: on main the saved
+        // Reddit pages' left nav, parsed late, was painted uncovered until the look after load, 1-1.7 s every load). By position, once a frame
+        // in an animation frame (all that was parsed by then; the parser hands thousands of nodes a callback: a box for each cost 14-28 ms
+        // and missed the nav; a look in every callback put first paint up to 270 ms later).
+        // Until DOMContentLoaded (also while 'interactive': the parser's last part), never after load.
+        if (parsedEls > 0 && !dclSeen && document.readyState !== 'complete' && !paintFrame) {
+          paintFrame = requestAnimationFrame(() => {
+            paintFrame = 0;
+            // Not after DOMContentLoaded either (review P2 of 2ac745ef): the end-first look has moved parts ahead by then (ahead, aheadRest), which
+            // this look does not see waiting, and it read them twice.
+            if (scanner !== sc || !document.body || document.readyState === 'complete' || dclSeen) return;
+            // Guarded as a pass's own steps are (see step): a throw reaches the browser once a scan (review P2b of 650882c5: a hit test that
+            // threw in every frame sent an error each), and still asks for the pass.
+            const before = handled;
+            try {
+              step('look', () => paintLook(document.body), () => afterThrow(handled > before));
+            } finally {
+              flushBack();
+            }
+          });
         }
         if (!waiting) return drain();
         const small = added > 0 && added <= FRESH_MAX_NODES;
@@ -966,7 +1211,7 @@ export default defineContentScript({
         // A dialog and what lands in one first, whatever came with them, oldest first.
         for (const d of urgent) {
           urgent.delete(d);
-          read(d, body);
+          readOrRequeue(d, body, urgent);
           if ((stop = over())) break;
         }
         // Then changed text on screen (the rest into `queue`, first).
@@ -980,7 +1225,7 @@ export default defineContentScript({
             const qt = performance.now();
             for (const n of q) {
               q.delete(n);
-              read(n, body);
+              readOrRequeue(n, body, q);
               if ((stop = over())) break;
             }
             if (q === newer && oldWaits) newMs += performance.now() - qt;
@@ -989,6 +1234,22 @@ export default defineContentScript({
           }
         }
         sliceLeft -= performance.now() - t0;
+      };
+      observer = new MutationObserver((muts) => {
+        let ok = false;
+        // A record that threw (see onChanges), raised after the reads. When the callback itself threw, that throw goes out and this one is let
+        // go (never raised in a later callback).
+        let t: { e: unknown } | undefined;
+        try {
+          onChanges(muts);
+          ok = true;
+        } finally {
+          flushBack();
+          if (!ok) afterThrow(true);
+          t = callbackThrow;
+          callbackThrow = undefined;
+        }
+        if (t) throw t.e;
       });
       // The page is still loading at this point, so watch the whole document, not just a body that may not exist yet.
       // Lazy-loaded pictures get their address and description after they are added, so those attributes are watched too,
@@ -996,6 +1257,11 @@ export default defineContentScript({
       observer.observe(document.documentElement, watchOpts);
       // The page watcher does not see inside shadow roots: each one found is watched on its own.
       for (const r of shadowRoots()) observer.observe(r, watchOpts);
+      if (firstThrow) {
+        const { e } = firstThrow;
+        if (timer === undefined) timer = window.setTimeout(drain, 0);
+        window.setTimeout(() => { throw e; }, 0);
+      }
       // 0.1.15: once the parse is done (and again on load), the end of the page and what is on screen are read ahead of the backlog
       // (see `ahead`). A start after load read the whole body above already. Only a node waiting in the backlog moves (claimFor).
       const body0 = () => document.body ?? document.documentElement;

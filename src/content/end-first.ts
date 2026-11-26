@@ -102,7 +102,9 @@ export class EndFirst {
     this.walker.currentNode = last;
   }
 
-  stop(): void {
+  /** Stops; `out` first gets the parts held back (taken from the backlog: a look stopped after a step threw must not lose them). */
+  stop(out?: (n: Node, first: boolean) => void): void {
+    if (out) this.release(out);
     this.move('stop');
     this.end();
   }
@@ -170,7 +172,13 @@ export class EndFirst {
     if (this.first) {
       this.first = false;
       const screen: Node[] = [];
-      this.onScreen((n) => screen.push(n));
+      try {
+        this.onScreen((n) => screen.push(n));
+      } catch (e) {
+        // A look that throws partway: the parts it took already are held, for stop() to hand back (review Q1 of f55b2db0).
+        this.later = screen;
+        throw e;
+      }
       if (this.screenOnly) {
         for (const n of screen) out(n, true);
         this.end();

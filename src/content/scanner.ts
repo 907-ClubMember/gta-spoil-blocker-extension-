@@ -1207,26 +1207,28 @@ export class Scanner {
     const hash = textHash(text);
     if (this.embedRead.get(emb) === hash) return;
     this.embedRead.set(emb, hash);
-    const found = this.matcher.inspect(text);
-    const level = this.chatLevel(msg);
-    const ctx = this.pageContext || this.gamePlace(msg);
-    let res = this.matcher.decide(found, ctx, ctx, level);
-    let why: Why = found.strong.size ? 'alone' : found.context ? 'mention' : level ? 'chat' : 'page';
-    const site = adapterFor(SOURCE_HOST[embedSource(emb)] || 'h.invalid');
-    if (!res && site?.names) {
-      const author = emb.querySelector(EMBED_AUTHOR);
-      const named = author ? this.nameSpoiler(` ${this.textOf(author, 400)}`) : null;
-      if (named) { res = named; why = 'spoiler-word'; }
-    }
-    if (res) {
-      this.hide(this.containerFor(msg), this.settleStrict(res, msg), why, emb);
-      return;
-    }
-    if (!found.context || (!this.chatGame && isOfficialEmbed(emb, msg)) || this.pics.mediaNearGame === 'off' || !this.matcher.judgesPosts || !this.pics.hideImages) return;
-    for (const m of this.mediaIn(emb)) {
-      if (this.skip(m) || isEmote(m) || this.mediaVerdict(m) === 'clean' || !this.bigMedia(m)) continue;
-      this.hideMedia(this.lightHost(m), this.pictureRes((g) => g.mediaNearGame !== 'off'), 'near-game');
-    }
+    return this.keyed(() => this.embedRead.delete(emb), () => {
+      const found = this.matcher.inspect(text);
+      const level = this.chatLevel(msg);
+      const ctx = this.pageContext || this.gamePlace(msg);
+      let res = this.matcher.decide(found, ctx, ctx, level);
+      let why: Why = found.strong.size ? 'alone' : found.context ? 'mention' : level ? 'chat' : 'page';
+      const site = adapterFor(SOURCE_HOST[embedSource(emb)] || 'h.invalid');
+      if (!res && site?.names) {
+        const author = emb.querySelector(EMBED_AUTHOR);
+        const named = author ? this.nameSpoiler(` ${this.textOf(author, 400)}`) : null;
+        if (named) { res = named; why = 'spoiler-word'; }
+      }
+      if (res) {
+        this.hide(this.containerFor(msg), this.settleStrict(res, msg), why, emb);
+        return;
+      }
+      if (!found.context || (!this.chatGame && isOfficialEmbed(emb, msg)) || this.pics.mediaNearGame === 'off' || !this.matcher.judgesPosts || !this.pics.hideImages) return;
+      for (const m of this.mediaIn(emb)) {
+        if (this.skip(m) || isEmote(m) || this.mediaVerdict(m) === 'clean' || !this.bigMedia(m)) continue;
+        this.hideMedia(this.lightHost(m), this.pictureRes((g) => g.mediaNearGame !== 'off'), 'near-game');
+      }
+    });
   }
 
   /**
@@ -1283,9 +1285,28 @@ export class Scanner {
    */
   private rescanAll(): void {
     this.contextGen++;
-    const known = shadowRoots().filter((r) => this.shadowSeen.has(r));
+    const known = this.knownShadows();
     if (this.doc.body) this.scan(this.doc.body);
     for (const r of known) this.scan(r);
+  }
+
+  /**
+   * A check's work after it wrote its key (the text it judged, so the same text is not judged twice): when the work throws, `drop` lets the key
+   * go first, so the read again judges it (review Q2 of 5d209622: the backlog read the node again, found the key and skipped it, and the node
+   * stayed uncovered until its text changed).
+   */
+  private keyed<R>(drop: () => void, work: () => R): R {
+    try {
+      return work();
+    } catch (e) {
+      drop();
+      throw e;
+    }
+  }
+
+  /** The open shadow roots this scanner has read (a read of a node around one does not enter it again). */
+  knownShadows(): ShadowRoot[] {
+    return shadowRoots().filter((r) => this.shadowSeen.has(r));
   }
 
   /**
@@ -1376,6 +1397,7 @@ export class Scanner {
   }
 
   scan(root: Node): void {
+    if (this.unfinished.size) this.finishCovers(root);
     if (this.opts.playerLayers?.preview && !this.hoverOn) {
       this.hoverOn = true;
       this.doc.addEventListener('pointerover', this.onHover, { capture: true, signal: this.playAbort.signal });
@@ -1428,6 +1450,7 @@ export class Scanner {
     // A live signal (Twitch's LIVE pill, viewer count, timer) arriving after the player was covered as recorded releases it.
     if (this.opts.liveMarks && this.hidden.size && root.nodeType === 1) this.liveArrived(root as Element);
     this.rejudge(root);
+    this.storeRecheck(root);
     this.chatRowReused(root);
     if (root.nodeType === 1) this.coverLateInDialog(root as Element);
     if (this.opts.main) {
@@ -1482,7 +1505,15 @@ export class Scanner {
     const hosts = root.nodeType === 1 && (root as Element).shadowRoot ? [root as Element] : [];
     for (const el of [...hosts, ...root.querySelectorAll('*')]) {
       const sr = el.shadowRoot;
-      if (sr && this.takeRoot(sr)) this.scan(sr);
+      if (!sr || !this.takeRoot(sr)) continue;
+      try {
+        this.scan(sr);
+      } catch (e) {
+        // Not seen after all: a later read of the host or around it enters it again (review Q2 of 5d209622: a read that threw inside a root
+        // left the rest of it unread for good, since a root seen is never entered again).
+        this.shadowSeen.delete(sr);
+        throw e;
+      }
     }
     // A custom element not defined yet gets its shadow root when the page's code arrives, and the page watcher sees no change
     // then (about one load in eight left a chat spoiler showing). Kept here so lateShadows can look again.
@@ -1614,19 +1645,21 @@ export class Scanner {
     const key = `${typed}\n${full}\n${this.pageContext}`;
     if (this.suggestionSeen.get(row) === key || this.hidden.has(row) || this.revealed.has(row)) return;
     this.suggestionSeen.set(row, key);
-    const added = this.matcher.inspect(withoutWords(full, typed));
-    const found = this.matcher.inspect(full);
-    const own = this.matcher.inspect(typed);
-    const more = (a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined) => [...(a ?? [])].some((c) => !b?.has(c));
-    const name = !!(added.strong.size || added.weak.size || added.real?.size) || more(found.strong, own.strong) || more(found.weak, own.weak) || more(found.real, own.real) || found.weakTerms > own.weakTerms;
-    const spoil = new Set([...added.spoil, ...[...found.spoil].filter((c) => !own.spoil.has(c))]);
-    if (!name && !spoil.size) return;
-    const res = this.matcher.decide(found, true, this.pageContext);
-    if (res && name) {
-      this.hide(row, res, found.strong.size ? 'alone' : found.context ? 'mention' : 'page', row);
-      return;
-    }
-    if (spoil.size && (found.context || this.pageContext)) this.hide(row, { categories: [...spoil], custom: false }, 'spoiler-word', row);
+    return this.keyed(() => this.suggestionSeen.delete(row), () => {
+      const added = this.matcher.inspect(withoutWords(full, typed));
+      const found = this.matcher.inspect(full);
+      const own = this.matcher.inspect(typed);
+      const more = (a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined) => [...(a ?? [])].some((c) => !b?.has(c));
+      const name = !!(added.strong.size || added.weak.size || added.real?.size) || more(found.strong, own.strong) || more(found.weak, own.weak) || more(found.real, own.real) || found.weakTerms > own.weakTerms;
+      const spoil = new Set([...added.spoil, ...[...found.spoil].filter((c) => !own.spoil.has(c))]);
+      if (!name && !spoil.size) return;
+      const res = this.matcher.decide(found, true, this.pageContext);
+      if (res && name) {
+        this.hide(row, res, found.strong.size ? 'alone' : found.context ? 'mention' : 'page', row);
+        return;
+      }
+      if (spoil.size && (found.context || this.pageContext)) this.hide(row, { categories: [...spoil], custom: false }, 'spoiler-word', row);
+    });
   }
 
   /**
@@ -1650,27 +1683,29 @@ export class Scanner {
     const hash = textHash(text);
     if (seen?.gen === this.contextGen && this.spoilTried.get(post) === hash) return false;
     this.spoilTried.set(post, hash);
-    const f = this.matcher.inspect(text);
-    // In a part that is not the page's subject (a recommendation beside a trailer) the page does not lend it the game: it needs its
-    // own. Except for a story word ("ending", "dies"): beside a page about the game it is taken as about the game too.
-    const apart = !!this.opts.apart && !!post.closest(this.opts.apart);
-    // A reply under a covered main post (X): as on a page about the game, and a strong story phrase counts with no name.
-    const inThread = this.replyContext(post);
-    // A chat line in a Discord game place is read as on a page about the game.
-    const gp = this.gamePlace(el);
-    const page = (this.pageAt(post) || inThread || gp) && (!apart || f.spoil.has('story'));
-    const phrase = inThread && CHAT_PLACE_PHRASES.test(own);
-    // A chat line in a game place with a strong story phrase: covered with no name beside it (see CHAT_PLACE_PHRASES).
-    const place = !!this.chatLevel(el) && (this.chatGame || this.pageContext) && CHAT_PLACE_PHRASES.test(own);
-    if (!f.spoil.size && !place && !phrase) return false;
-    const about = !!(f.context || page || place || phrase || this.repliesToMention(post));
-    // A chat message is judged on its own words only: a mention of the game a few lines up does not make it about the game.
-    if (!about) return false;
-    this.declined = false;
-    this.hide(post, { categories: f.spoil.size ? [...f.spoil] : ['story'], custom: false }, 'spoiler-word', el);
-    // Covered only because the Discord channel is a game place: it comes off when the place no longer names the game.
-    if ((place || gp) && !f.context && !this.pageContext && !inThread && this.chatGame && this.hidden.has(post)) this.cautioned.add(post);
-    return !this.declined;
+    return this.keyed(() => this.spoilTried.delete(post), () => {
+      const f = this.matcher.inspect(text);
+      // In a part that is not the page's subject (a recommendation beside a trailer) the page does not lend it the game: it needs its
+      // own. Except for a story word ("ending", "dies"): beside a page about the game it is taken as about the game too.
+      const apart = !!this.opts.apart && !!post.closest(this.opts.apart);
+      // A reply under a covered main post (X): as on a page about the game, and a strong story phrase counts with no name.
+      const inThread = this.replyContext(post);
+      // A chat line in a Discord game place is read as on a page about the game.
+      const gp = this.gamePlace(el);
+      const page = (this.pageAt(post) || inThread || gp) && (!apart || f.spoil.has('story'));
+      const phrase = inThread && CHAT_PLACE_PHRASES.test(own);
+      // A chat line in a game place with a strong story phrase: covered with no name beside it (see CHAT_PLACE_PHRASES).
+      const place = !!this.chatLevel(el) && (this.chatGame || this.pageContext) && CHAT_PLACE_PHRASES.test(own);
+      if (!f.spoil.size && !place && !phrase) return false;
+      const about = !!(f.context || page || place || phrase || this.repliesToMention(post));
+      // A chat message is judged on its own words only: a mention of the game a few lines up does not make it about the game.
+      if (!about) return false;
+      this.declined = false;
+      this.hide(post, { categories: f.spoil.size ? [...f.spoil] : ['story'], custom: false }, 'spoiler-word', el);
+      // Covered only because the Discord channel is a game place: it comes off when the place no longer names the game.
+      if ((place || gp) && !f.context && !this.pageContext && !inThread && this.chatGame && this.hidden.has(post)) this.cautioned.add(post);
+      return !this.declined;
+    });
   }
 
   /**
@@ -2463,12 +2498,14 @@ export class Scanner {
     const key = textKey(text);
     if (this.bioTried.get(bio) === key) return;
     this.bioTried.set(bio, key);
-    const found = this.matcher.inspect(text);
-    if (!found.spoil.size || !(found.strong.size || found.weak.size || found.context)) return;
-    // The game's name beside a spoiler word has no name of its own to decide on: it is covered as a spoiler phrase, like a post.
-    const decided = this.matcher.decide(found, true, true);
-    if (!decided && !this.matcher.judgesPosts) return;
-    this.hide(this.containerFor(parent), decided ?? { categories: [...found.spoil], custom: false }, 'spoiler-word', parent);
+    return this.keyed(() => this.bioTried.delete(bio), () => {
+      const found = this.matcher.inspect(text);
+      if (!found.spoil.size || !(found.strong.size || found.weak.size || found.context)) return;
+      // The game's name beside a spoiler word has no name of its own to decide on: it is covered as a spoiler phrase, like a post.
+      const decided = this.matcher.decide(found, true, true);
+      if (!decided && !this.matcher.judgesPosts) return;
+      this.hide(this.containerFor(parent), decided ?? { categories: [...found.spoil], custom: false }, 'spoiler-word', parent);
+    });
   }
 
   /**
@@ -2487,9 +2524,11 @@ export class Scanner {
     const key = textKey(text);
     if (this.bioTried.get(row) === key) return this.checkNameplate(parent);
     this.bioTried.set(row, key);
-    const res = this.nameSpoiler(text);
-    if (res) { this.hide(this.containerFor(parent), res, 'spoiler-word', parent); return; }
-    this.checkNameplate(parent);
+    return this.keyed(() => this.bioTried.delete(row), () => {
+      const res = this.nameSpoiler(text);
+      if (res) { this.hide(this.containerFor(parent), res, 'spoiler-word', parent); return; }
+      this.checkNameplate(parent);
+    });
   }
 
   /** A bio's words as checkBio reads them: the whole bio at once, and what it carries unseen. */
@@ -2527,23 +2566,25 @@ export class Scanner {
     const text = ` ${np.textContent ?? ''}`.slice(0, 400);
     if (this.nameplateRead.get(np) === text) return;
     this.nameplateRead.set(np, text);
-    const res = this.nameplateMatch(text);
-    if (!res) return;
-    // A small inline link inside a clickable row cannot be a blurred cover (the blur takes no clicks, so a press would land on the row under
-    // it, and a strip under 24 px is tiny UI): it is covered as a collapsed line, its short label standing where the name was. The mode is
-    // swapped for this one cover; remove mode stays as set. The marker (every mode) tells wordsCovered, the label sizing and the repair path.
-    const swap = this.opts.hideMode === 'blur';
-    if (swap) this.opts.hideMode = 'collapse';
-    try {
-      np.setAttribute('data-gsb-name', '');
-      this.hide(np, res, 'alone', np);
-    } finally {
-      // Restored on every path (a throw too); the marker stays only on a nameplate that was really covered.
-      if (swap) this.opts.hideMode = 'blur';
-      if (!np.hasAttribute('data-gsb')) np.removeAttribute('data-gsb-name');
-    }
-    if (np.hasAttribute('data-gsb')) this.hidden.get(np)?.setAttribute('data-gsb-name', '');
-    else this.nameplateRead.delete(np); // declined for now (a shown card, a setting): looked at again the next time
+    return this.keyed(() => this.nameplateRead.delete(np), () => {
+      const res = this.nameplateMatch(text);
+      if (!res) return;
+      // A small inline link inside a clickable row cannot be a blurred cover (the blur takes no clicks, so a press would land on the row under
+      // it, and a strip under 24 px is tiny UI): it is covered as a collapsed line, its short label standing where the name was. The mode is
+      // swapped for this one cover; remove mode stays as set. The marker (every mode) tells wordsCovered, the label sizing and the repair path.
+      const swap = this.opts.hideMode === 'blur';
+      if (swap) this.opts.hideMode = 'collapse';
+      try {
+        np.setAttribute('data-gsb-name', '');
+        this.hide(np, res, 'alone', np);
+      } finally {
+        // Restored on every path (a throw too); the marker stays only on a nameplate that was really covered.
+        if (swap) this.opts.hideMode = 'blur';
+        if (!np.hasAttribute('data-gsb')) np.removeAttribute('data-gsb-name');
+      }
+      if (np.hasAttribute('data-gsb')) this.hidden.get(np)?.setAttribute('data-gsb-name', '');
+      else this.nameplateRead.delete(np); // declined for now (a shown card, a setting): looked at again the next time
+    });
   }
 
   /** The cover for a nameplate's text: a STRONG list name only (word boundaries, glued handles split), whatever the page context. */
@@ -2564,10 +2605,12 @@ export class Scanner {
     const text = ` ${np.textContent ?? ''}`.slice(0, 400);
     if (this.nameplateRead.get(np) === text) return;
     this.nameplateRead.set(np, text);
-    if (this.nameplateMatch(text)) return;
-    this.unhide(np);
-    np.removeAttribute('data-gsb-name');
-    this.nameplateRead.delete(np);
+    return this.keyed(() => this.nameplateRead.delete(np), () => {
+      if (this.nameplateMatch(text)) return;
+      this.unhide(np);
+      np.removeAttribute('data-gsb-name');
+      this.nameplateRead.delete(np);
+    });
   }
 
   /** Is a display name or handle written as a spoiler (see checkName)? */
@@ -2721,14 +2764,16 @@ export class Scanner {
     const seen = this.joinedPass.get(block);
     if (seen && seen.pass === this.pass && seen.changes === this.changes) return;
     this.joinedPass.set(block, { pass: this.pass, changes: this.changes, gen: this.contextGen });
-    const text = this.blockText(block, inline, card);
-    if (text.length > MAX_POST_CHARS || (!this.forceJoin && seen?.gen === this.contextGen && this.joined.get(block) === text)) return;
-    this.joined.set(block, text);
-    const found = this.matcher.inspect(text);
-    const ctx = this.pageAt(block) || this.gamePlace(block);
-    const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(block));
-    if (res) this.hide(this.containerFor(block), this.settleStrict(res, block), found.strong.size ? 'alone' : found.context ? 'mention' : this.chatLevel(block) ? 'chat' : 'page', block);
-    else this.headingHide(block, found, block);
+    return this.keyed(() => { this.joinedPass.delete(block); this.joined.delete(block); }, () => {
+      const text = this.blockText(block, inline, card);
+      if (text.length > MAX_POST_CHARS || (!this.forceJoin && seen?.gen === this.contextGen && this.joined.get(block) === text)) return;
+      this.joined.set(block, text);
+      const found = this.matcher.inspect(text);
+      const ctx = this.pageAt(block) || this.gamePlace(block);
+      const res = this.matcher.decide(found, ctx, ctx, this.chatLevel(block));
+      if (res) this.hide(this.containerFor(block), this.settleStrict(res, block), found.strong.size ? 'alone' : found.context ? 'mention' : this.chatLevel(block) ? 'chat' : 'page', block);
+      else this.headingHide(block, found, block);
+    });
   }
 
   /**
@@ -4675,6 +4720,30 @@ export class Scanner {
   }
 
   /**
+   * Result cards the store rule let through (see storePass). A search result read half parsed (its store title link the only link so far: the
+   * paint look reads what is on screen early, and a page with no backlog reads each piece as it lands) passed; a link to another site that
+   * lands in it later has the card judged again (review P2 of 2ac745ef: nothing judged it again, and the name stayed shown).
+   */
+  private storePassed = new WeakSet<Element>();
+  private storeRecheck(root: Node): void {
+    const cards = this.opts.containers;
+    if (!cards || !this.opts.allowStores) return;
+    const el = root.nodeType === 1 ? (root as Element) : root.parentElement;
+    const card = el?.closest(cards);
+    if (!el || !card || card === root || !this.storePassed.has(card)) return;
+    if (!el.matches('a[href]') && !el.querySelector('a[href]')) return;
+    this.storePassed.delete(card);
+    // Read whole again whatever the joined-text cache says (as rejudge does).
+    const before = this.forceJoin;
+    this.forceJoin = true;
+    try {
+      this.scan(card);
+    } finally {
+      this.forceJoin = before;
+    }
+  }
+
+  /**
    * A site can reuse a hidden card for something else (YouTube does in its suggested-videos column), which
    * would leave a label on a clean card. When the content of a card hidden for a blocks-alone name inside it
    * changes, the card is judged again from scratch. Hides that depend on anything outside the card are left alone.
@@ -5293,9 +5362,26 @@ export class Scanner {
     }
   }
 
+  /** Covers half made by a hide() that threw, and what made them (see hide): made again whole by the next read in or around them. */
+  private unfinished = new Map<Element, { res: MatchResult; why: Why; at?: Element }>();
+
+  private finishCovers(root: Node): void {
+    for (const [el, c] of this.unfinished) {
+      if (!el.isConnected) this.unfinished.delete(el);
+      else if (el.contains(root) || root.contains(el)) {
+        this.unfinished.delete(el);
+        // Taken off and put on again in one go: nothing is drawn between.
+        this.uncoverEl(el);
+        this.hide(el, c.res, c.why, c.at);
+      }
+    }
+  }
+
   private hide(el: Element, res: MatchResult, why: Why = 'alone', at?: Element): void {
     this.noteChatRow(at ?? el);
     if (this.storePass(el, why, at)) {
+      const passed = this.opts.containers ? el.closest(this.opts.containers) : null;
+      if (passed) this.storePassed.add(passed);
       this.declined = true; // nothing was covered: the caller must not say it was (B-038)
       return;
     }
@@ -5381,104 +5467,113 @@ export class Scanner {
       if (inner !== el && el.contains(inner) && !(own && this.replyUnder(el, inner)) && !(mediaCover && !['near-game', 'media'].includes(inner.getAttribute('data-gsb-why') ?? ''))) this.uncoverEl(inner, innerBar);
     }
     // A new cover starts unpeeked (a peek can be left over from an earlier run of the extension).
-    el.removeAttribute('data-gsb-peek');
-    el.setAttribute('data-gsb', this.opts.hideMode);
-    this.keepRows(el, why, at);
-    this.changes++;
-    // Pictures in a comment covered for its words stay covered at the same address if its text is later replaced (reply pictures).
-    if (why !== 'near-game' && why !== 'media' && this.opts.threads && el.matches(this.opts.threads)) {
-      for (const m of el.querySelectorAll('img, video')) if (m.closest(this.opts.containers!) === el) this.underWords.set(m, this.picSrc(m));
-    }
-    // Which rule hid it. A rule name only, never the matched words.
-    el.setAttribute('data-gsb-why', why);
-    this.whyOf.set(el, why);
-    if (why === 'account' || (res.custom && !res.categories.length)) this.notGame.add(el);
-    else this.notGame.delete(el);
-    // The setting that made it, when the person changed one (a code only).
-    const source = this.opts.coverSource ? pickSource(why, res, this.opts.coverSource, why === 'account' ? this.accountOf(at) : null) : null;
-    if (source) {
-      el.setAttribute('data-gsb-source', source);
-      this.sourceOf.set(el, source);
-    } else {
-      el.removeAttribute('data-gsb-source');
-      this.sourceOf.delete(el);
-    }
-    if (DEBUG_WHY && this.opts.debugWhy) el.setAttribute('data-gsb-debug', [...(res.hits ?? [])].join(' | '));
-    this.hideKeys.set(el, keysFor(why, res.groups));
     let bar: HTMLElement | null = null;
-    if (this.opts.hideMode !== 'remove') {
-      const btn = this.doc.createElement('button');
-      btn.type = 'button';
-      bar = btn;
-      bar.className = 'gsb-bar';
-      // The collapsed line is small: the item is gone, only a trace is left.
-      if (this.opts.hideMode === 'collapse') bar.setAttribute('data-gsb-line', '');
-      const base = this.opts.showReason === false ? 'Hidden' : reasonLabel(why, res, el);
-      // " · Strict": the setting that made the cover, after the reason (not with "say why" off). The tip says it in a sentence.
-      const tag = source && this.opts.showReason !== false ? SOURCE_TAG[source] : '';
-      if (tag) this.barTag.set(bar, tag);
-      const name = this.tagged(bar, base);
-      this.wireReveal(el, bar, name);
-      // A bar in a table's flow takes room from the next cells, and one in a dialog (a photo viewer) lies near the dialog's own controls:
-      // there the drawn label stays as long as before, and the tag is only in the aria-label and the tip.
-      if (tag && (el.matches('td, th, tr') || !!el.closest('[role="dialog"], [role="alertdialog"], dialog') || this.inViewer(el))) {
-        bar.textContent = (bar.textContent ?? name).replace(` · ${tag}`, '');
-        this.ariaTagOnly.add(bar);
+    try {
+      el.removeAttribute('data-gsb-peek');
+      el.setAttribute('data-gsb', this.opts.hideMode);
+      this.keepRows(el, why, at);
+      this.changes++;
+      // Pictures in a comment covered for its words stay covered at the same address if its text is later replaced (reply pictures).
+      if (why !== 'near-game' && why !== 'media' && this.opts.threads && el.matches(this.opts.threads)) {
+        for (const m of el.querySelectorAll('img, video')) if (m.closest(this.opts.containers!) === el) this.underWords.set(m, this.picSrc(m));
       }
-      this.addChangeTip(bar, el, why, source && this.opts.showReason !== false ? `${base}. ${SOURCE_SENTENCE[source]}` : name, source);
-      // A label wider than the picture it covers would hang over the page (and over the next picture in a grid): there it is an
-      // eye button, its words for screen readers. Anything else covered in blur is measured again once laid out (sizes).
-      // (What is drawn, with the hold-to-peek hint when there is one: the width test measures that.)
-      this.barName.set(bar, bar.textContent ?? name);
-      this.barBase.set(bar, base);
-      if (picW > 0) this.narrowBar(bar, el, picW, this.sizeOf(el).h);
-      // Plain-language rule, no names. Debug adds the matched terms, which are the spoilers themselves.
-      bar.title = DEBUG_WHY && this.opts.debugWhy ? [WHY_TEXT[why], ...(res.hits ?? [])].join('\n') : WHY_TEXT[why];
-      // The page put a new node where a covered one was (Search Fixer, some feeds): the old one's bar is still in front of it
-      // until the next clean-up. It goes now, so the new cover has one bar; the clean-up still forgets the old cover.
-      const prev = el.previousElementSibling;
-      if (prev instanceof HTMLElement && prev.classList.contains('gsb-bar')) {
-        const owner = this.barOwner.get(prev);
-        if (!owner || !owner.isConnected) prev.remove();
+      // Which rule hid it. A rule name only, never the matched words.
+      el.setAttribute('data-gsb-why', why);
+      this.whyOf.set(el, why);
+      if (why === 'account' || (res.custom && !res.categories.length)) this.notGame.add(el);
+      else this.notGame.delete(el);
+      // The setting that made it, when the person changed one (a code only).
+      const source = this.opts.coverSource ? pickSource(why, res, this.opts.coverSource, why === 'account' ? this.accountOf(at) : null) : null;
+      if (source) {
+        el.setAttribute('data-gsb-source', source);
+        this.sourceOf.set(el, source);
+      } else {
+        el.removeAttribute('data-gsb-source');
+        this.sourceOf.delete(el);
       }
-      this.barOwner.set(bar, el);
-      this.placeBar(el, bar);
-    }
-    this.hidden.set(el, bar);
-    // Remove mode: a whole area emptied gets its one line (removed-areas.ts), looked at once this run of covers is done.
-    if (this.opts.hideMode === 'remove') this.queueAreas(el);
-    this.bigMemo.clear();
-    // A cover made now may be the first in a dialog just opened: look for a dialog again.
-    this.dialogAt = 0;
-    // A collapsed item has no size by design, so its line is never tucked away by the size watcher.
-    if (bar && this.opts.hideMode === 'blur') {
-      this.sizes?.observe(el);
-      this.scheduleStack();
-      this.styleWatch?.observe(el, { attributes: true, attributeFilter: ['style'] });
-      this.keepBlur(el);
-    }
-    if (own) this.openAll(el);
-    else if (this.flagged) this.whole.add(el);
-    if (why !== 'near-game' && why !== 'media') this.rereadReplies(el);
-    // A comment's own picture covered beside the game's name (0.1.10, see gamePicture): the replies under it read before are its replies too.
-    else if (why === 'near-game' && this.opts.ownThreads) {
-      const c = el.closest(this.opts.ownThreads);
-      if (c && this.gamePicture(c)) this.rereadReplies(c);
-    }
-    if (this.opts.main && this.mc?.el === el) this.startCover();
-    // A picture of the main post covered on its own, where that counts as the post covered (see holdsPictureCover): its replies go now,
-    // not at the next pass (there may be none).
-    else if (this.opts.main && this.coverKey === null && (why === 'near-game' || why === 'media') && this.mc?.el?.contains(el) && this.holdsPictureCover(this.mc.el)) this.startCover();
-    // Part of a post or result card is covered (its title, say): every picture in that card goes too, whatever its size.
-    if (this.pics.hideImages && this.opts.containers && why !== 'near-game' && why !== 'media') {
-      const card = this.pictureCard(el);
-      if (card && card !== el) this.mediaIn(card).forEach((m) => this.nearGame(m));
-      // A card longer than a post is not swept whole: the pictures beside the covered part are looked at again (a picture judged before this cover
-      // came, or text that arrives later: review 3).
-      else if (!card && this.opts.containers) {
-        const raw = el.closest(this.opts.containers);
-        if (raw && raw !== el && this.cappedCard(raw)) for (const e of this.neighbours(el, raw).near) (e.matches('img, video') ? [e] : this.mediaIn(e)).forEach((m) => this.nearGame(m));
+      if (DEBUG_WHY && this.opts.debugWhy) el.setAttribute('data-gsb-debug', [...(res.hits ?? [])].join(' | '));
+      this.hideKeys.set(el, keysFor(why, res.groups));
+      if (this.opts.hideMode !== 'remove') {
+        const btn = this.doc.createElement('button');
+        btn.type = 'button';
+        bar = btn;
+        bar.className = 'gsb-bar';
+        // The collapsed line is small: the item is gone, only a trace is left.
+        if (this.opts.hideMode === 'collapse') bar.setAttribute('data-gsb-line', '');
+        const base = this.opts.showReason === false ? 'Hidden' : reasonLabel(why, res, el);
+        // " · Strict": the setting that made the cover, after the reason (not with "say why" off). The tip says it in a sentence.
+        const tag = source && this.opts.showReason !== false ? SOURCE_TAG[source] : '';
+        if (tag) this.barTag.set(bar, tag);
+        const name = this.tagged(bar, base);
+        this.wireReveal(el, bar, name);
+        // A bar in a table's flow takes room from the next cells, and one in a dialog (a photo viewer) lies near the dialog's own controls:
+        // there the drawn label stays as long as before, and the tag is only in the aria-label and the tip.
+        if (tag && (el.matches('td, th, tr') || !!el.closest('[role="dialog"], [role="alertdialog"], dialog') || this.inViewer(el))) {
+          bar.textContent = (bar.textContent ?? name).replace(` · ${tag}`, '');
+          this.ariaTagOnly.add(bar);
+        }
+        this.addChangeTip(bar, el, why, source && this.opts.showReason !== false ? `${base}. ${SOURCE_SENTENCE[source]}` : name, source);
+        // A label wider than the picture it covers would hang over the page (and over the next picture in a grid): there it is an
+        // eye button, its words for screen readers. Anything else covered in blur is measured again once laid out (sizes).
+        // (What is drawn, with the hold-to-peek hint when there is one: the width test measures that.)
+        this.barName.set(bar, bar.textContent ?? name);
+        this.barBase.set(bar, base);
+        if (picW > 0) this.narrowBar(bar, el, picW, this.sizeOf(el).h);
+        // Plain-language rule, no names. Debug adds the matched terms, which are the spoilers themselves.
+        bar.title = DEBUG_WHY && this.opts.debugWhy ? [WHY_TEXT[why], ...(res.hits ?? [])].join('\n') : WHY_TEXT[why];
+        // The page put a new node where a covered one was (Search Fixer, some feeds): the old one's bar is still in front of it
+        // until the next clean-up. It goes now, so the new cover has one bar; the clean-up still forgets the old cover.
+        const prev = el.previousElementSibling;
+        if (prev instanceof HTMLElement && prev.classList.contains('gsb-bar')) {
+          const owner = this.barOwner.get(prev);
+          if (!owner || !owner.isConnected) prev.remove();
+        }
+        this.barOwner.set(bar, el);
+        this.placeBar(el, bar);
       }
+      this.hidden.set(el, bar);
+      // Remove mode: a whole area emptied gets its one line (removed-areas.ts), looked at once this run of covers is done.
+      if (this.opts.hideMode === 'remove') this.queueAreas(el);
+      this.bigMemo.clear();
+      // A cover made now may be the first in a dialog just opened: look for a dialog again.
+      this.dialogAt = 0;
+      // A collapsed item has no size by design, so its line is never tucked away by the size watcher.
+      if (bar && this.opts.hideMode === 'blur') {
+        this.sizes?.observe(el);
+        this.scheduleStack();
+        this.styleWatch?.observe(el, { attributes: true, attributeFilter: ['style'] });
+        this.keepBlur(el);
+      }
+      if (own) this.openAll(el);
+      else if (this.flagged) this.whole.add(el);
+      if (why !== 'near-game' && why !== 'media') this.rereadReplies(el);
+      // A comment's own picture covered beside the game's name (0.1.10, see gamePicture): the replies under it read before are its replies too.
+      else if (why === 'near-game' && this.opts.ownThreads) {
+        const c = el.closest(this.opts.ownThreads);
+        if (c && this.gamePicture(c)) this.rereadReplies(c);
+      }
+      if (this.opts.main && this.mc?.el === el) this.startCover();
+      // A picture of the main post covered on its own, where that counts as the post covered (see holdsPictureCover): its replies go now,
+      // not at the next pass (there may be none).
+      else if (this.opts.main && this.coverKey === null && (why === 'near-game' || why === 'media') && this.mc?.el?.contains(el) && this.holdsPictureCover(this.mc.el)) this.startCover();
+      // Part of a post or result card is covered (its title, say): every picture in that card goes too, whatever its size.
+      if (this.pics.hideImages && this.opts.containers && why !== 'near-game' && why !== 'media') {
+        const card = this.pictureCard(el);
+        if (card && card !== el) this.mediaIn(card).forEach((m) => this.nearGame(m));
+        // A card longer than a post is not swept whole: the pictures beside the covered part are looked at again (a picture judged before this cover
+        // came, or text that arrives later: review 3).
+        else if (!card && this.opts.containers) {
+          const raw = el.closest(this.opts.containers);
+          if (raw && raw !== el && this.cappedCard(raw)) for (const e of this.neighbours(el, raw).near) (e.matches('img, video') ? [e] : this.mediaIn(e)).forEach((m) => this.nearGame(m));
+        }
+      }
+    } catch (err) {
+      // A cover half made (a throw after its attribute: in its label, its bar, or the steps after): it stays covered (a flash is worse than a
+      // missing bar), is tracked, and is made again whole on the next read in or around it (review Q2 of 5d209622: left blurred with no bar
+      // and untracked, the read again skipped it, and the person could not show it).
+      if (!this.hidden.has(el)) this.hidden.set(el, bar?.isConnected ? bar : null);
+      this.unfinished.set(el, { res, why, at });
+      throw err;
     }
   }
 
@@ -6245,6 +6340,7 @@ export class Scanner {
     this.areaLines.clear();
     this.stacked.clear();
     this.probeBars.clear();
+    this.unfinished.clear();
     this.dialogSets.clear();
     this.dialogSrc.clear();
     this.viewerList.clear();
