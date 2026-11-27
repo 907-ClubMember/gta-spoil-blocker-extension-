@@ -16,6 +16,7 @@ import { readLastError } from '../last-error';
 import { watchContextMenu } from '../beta/content';
 import { BIG_READ, CLAIM_MAX, CLAIM_MAX_END, claimFor, EndFirst } from '../content/end-first';
 import { ChangedPacer, JudgeCache, lineOf, MIGHT_MAX, oneSpace, pacingKey } from '../content/changed-pacer';
+import { bandRange } from '../content/scroll-band';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -238,6 +239,12 @@ export default defineContentScript({
     let queueMs = 0;
     /** Moved nodes over BIG_READ elements: each is read at the start of a pass, alone (a long read is not made longer by others). */
     let bigAhead = new WeakSet<Node>();
+    /**
+     * `ahead` holds what a scroll look moved (till it empties); the time read from `ahead` and from the rest (the backlog, `newer`, aheadRest)
+     * meanwhile: `ahead` keeps at most 3/4 of it (see drainPass).
+     */
+    let scrollFed = false;
+    let fedMs = 0, unfedMs = 0;
     let endFirst: EndFirst | null = null;
     let timer: number | undefined;
     let confirmTimer: number | undefined;
@@ -272,6 +279,8 @@ export default defineContentScript({
     const FRESH_MAX_NODES = 8;
     /** Our own nodes in the page (a cover's bar, its tip and screen-reader text). */
     const OWN_NODES = '.gsb-bar, .gsb-tip, .gsb-sr';
+    /** Not walked by the scroll look (nothing in them is shown). */
+    const SWEEP_SKIP = `script, style, noscript, template, ${OWN_NODES}`;
     const DIALOGS = '[role="dialog"], dialog, [aria-modal="true"]';
     /** Only the first nodes of a callback are looked through for a dialog: 400 heavy posts cost 1.9 ms, these at most about 0.15 ms. */
     const DIALOG_CHECKS = 32;
@@ -285,8 +294,24 @@ export default defineContentScript({
     let sliceOpen = false;
     let sliceAt = 0;
     const SLICE_TASK_MS = 50;
-    /** Quiet time after the last scroll before what is on screen is looked for again (0.1.15). */
-    const SCROLL_IDLE_MS = 150;
+    /**
+     * Scroll first (see lookForScroll): at most one look a SCROLL_LOOK_MS while the page scrolls (and one after the last scroll); each walks
+     * for at most SWEEP_MS and moves at most SWEEP_CLAIMS parts ahead, SWEEP_RATE a second in all (a pass reads about 1,000 a second).
+     */
+    const SCROLL_LOOK_MS = 100, SWEEP_MS = 4, SWEEP_CLAIMS = 100, SWEEP_RATE = 1200;
+    /** A node with more child elements than this is walked only across the band (see `across`). */
+    const SWEEP_LIST = 32;
+    /** The scroll look's points across and down the window (fewer than the paint look's: each hit test on a big page costs 0.2-0.5 ms). */
+    const SWEEP_X = 4, SWEEP_Y = 8;
+    /** The band ahead of a fast scroll reaches at most this many screens. */
+    const SWEEP_SCREENS = 4;
+    /** A walk of the window goes on over at most this many frames (see viewWalk). */
+    const SWEEP_FRAMES = 6;
+    /** The animation frame and the timer asked for the next scroll look (0, undefined: none). */
+    let scrollFrame = 0;
+    let scrollTimer: number | undefined;
+    /** Takes the running scan's scroll listeners off (see stop). */
+    let unlisten: (() => void) | null = null;
     const sliceEnd = new MessageChannel();
     sliceEnd.port1.onmessage = () => {
       sliceLeft = FRESH_BUDGET_MS;
@@ -357,6 +382,12 @@ export default defineContentScript({
       // A look asked for by the scan that ends (a new start asks for its own).
       if (paintFrame) cancelAnimationFrame(paintFrame);
       paintFrame = 0;
+      if (scrollFrame) cancelAnimationFrame(scrollFrame);
+      scrollFrame = 0;
+      clearTimeout(scrollTimer);
+      scrollTimer = undefined;
+      unlisten?.();
+      unlisten = null;
       urgent = new Set();
       changed = new Set();
       frontAt = new WeakMap();
@@ -371,6 +402,8 @@ export default defineContentScript({
       aheadRest = new Set();
       restMs = queueMs = 0;
       bigAhead = new WeakSet();
+      scrollFed = false;
+      fedMs = unfedMs = 0;
       endFirst?.stop();
       endFirst = null;
       nearHead.clear();
@@ -954,9 +987,20 @@ export default defineContentScript({
         const oldWaits = queue.size > 0 || fresh.size > 0;
         if (!oldWaits) newMs = oldMs = 0;
         const newShare = oldWaits || aheadRest.size ? budget * NEWER_SHARE : budget;
-        const order = newMs <= oldMs * NEW_RATIO
-          ? [[urgent, budget / 4], [ahead, budget], [newer, newShare], ...turns] as const
-          : [[urgent, budget / 4], [ahead, budget], ...turns, [newer, budget]] as const;
+        // While scroll looks keep `ahead` full, the rest goes first whenever `ahead` has had over 3/4 of the time (review P2c of 4b12e5fb: with
+        // `ahead` first in every pass, the backlog and what the page added after load waited until the scrolling stopped; by time, as the
+        // other turns: a share of a pass is overrun by a heavy read, and two reads of `ahead` took every pass).
+        const restFirst = scrollFed && fedMs > 3 * unfedMs && (queue.size > 0 || fresh.size > 0 || newer.size > 0 || aheadRest.size > 0);
+        // And what the page added after load (`newer`) goes before `ahead` while the looks feed it, `ahead` then at most 3/4 of the pass (review
+        // P1 of 3e63273a: after `ahead`, or after the backlog's whole turn, 13 units appended during a scroll waited the whole scroll, 7 s
+        // and more; paint2 133 ms).
+        const order = restFirst
+          ? [[urgent, budget / 4], [newer, newShare], ...turns, [ahead, budget]] as const
+          : scrollFed && newer.size
+            ? [[urgent, budget / 4], [newer, newShare], [ahead, (budget * 3) / 4], ...turns] as const
+            : newMs <= oldMs * NEW_RATIO
+              ? [[urgent, budget / 4], [ahead, budget], [newer, newShare], ...turns] as const
+              : [[urgent, budget / 4], [ahead, budget], ...turns, [newer, budget]] as const;
         for (const [q, share] of order) {
           const qt = performance.now();
           for (const n of q) {
@@ -976,6 +1020,10 @@ export default defineContentScript({
             readChanged(body, () => performance.now() - ct > budget / 4);
             over = performance.now() - t0 > budget;
           }
+          if (scrollFed && q !== urgent) {
+            if (q === ahead) fedMs += performance.now() - qt;
+            else unfedMs += performance.now() - qt;
+          }
           if (q === aheadRest) restMs += performance.now() - qt;
           else if ((q === queue || q === fresh) && aheadRest.size) queueMs += performance.now() - qt;
           if (q === newer && oldWaits) newMs += performance.now() - qt;
@@ -983,6 +1031,10 @@ export default defineContentScript({
           if (over) break;
         }
         flushBack();
+        if (!ahead.size) {
+          scrollFed = false;
+          fedMs = unfedMs = 0;
+        }
         if (urgent.size || changed.size || ahead.size || aheadRest.size || newer.size || queue.size || fresh.size || ef?.state === 'collecting') {
           // A read that threw in this pass has asked for the next one already.
           if (timer === undefined) timer = window.setTimeout(drain, 0);
@@ -1276,30 +1328,258 @@ export default defineContentScript({
       endFirst = ef;
       // 0.1.15 second step: what is on screen is looked for by position first (end-first.ts), in a pass right after DOMContentLoaded (and
       // load): a timer, not the event itself (run in the event, it laid a feed of 6000 posts out in the page's own task: 145 ms, base 65).
-      const readEndFirst = (screenOnly = false) => {
+      const readEndFirst = () => {
         if (scanner !== sc || endFirst !== ef) return;
         // Nothing waits: nothing to move ahead (the page behaves as before).
         if (!queue.size && !fresh.size) return;
-        ef.start(screenOnly);
-        if (screenOnly) {
-          if (timer === undefined) timer = window.setTimeout(drain, 0);
-          return;
-        }
+        ef.start();
         clearTimeout(timer);
         drain();
       };
       const soon = () => window.setTimeout(() => readEndFirst(), 0);
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', soon, { once: true });
       if (document.readyState !== 'complete') window.addEventListener('load', soon, { once: true });
-      // Scrolled while a backlog waits: once the scrolling stops, what is on screen now is moved ahead too.
-      let scrollIdle: number | undefined;
-      const onScroll = () => {
-        if (scanner !== sc) return void window.removeEventListener('scroll', onScroll);
-        if (document.readyState === 'loading') return;
-        clearTimeout(scrollIdle);
-        scrollIdle = window.setTimeout(() => readEndFirst(true), SCROLL_IDLE_MS);
+
+      // Scroll first. Scrolled while a backlog waits (after DOMContentLoaded: before it the paint look reads what is on screen), what is in
+      // the window, then a screen the way it scrolls, then a screen the other way, moves ahead of the backlog, so what is about to come into
+      // view is read before it does. Only looked for once the scrolling had stopped for 150 ms (a5ba5d88), a post the reader jumped to was
+      // covered 230 ms later, one between two rows of the look's points never before the backlog reached it, and a steady scroll showed
+      // every name not read yet. The look walks the page from the body down, into what lies across each band only (so its cost is the
+      // band's, not the backlog's: the saved Reddit control page keeps about 28,000 single nodes waiting while its parse goes on), in the
+      // page's order; each waiting node there is claimed (claimFor: the outermost waiting part around it, CLAIM_MAX elements at most).
+      // What is under the paint look's points comes first (a fixed bar whose wrapper has no height, a pane's own rows). Nodes already moved
+      // ahead are moved to the front again when in a band (an older look's, passed by a fast scroll, wait behind them). It only claims: a
+      // pass reads them (readOrRequeue), at the front of `ahead`.
+      // Bands are rows across the whole width of the window (review P1 of 3e63273a): a carousel's parts out of view to the side are not claimed
+      // (a box wholly left or right of the window is passed), and a window scrolled sideways gets no band ahead: known, not met on the pages
+      // measured.
+      const sweepWaits = (x: Node) => waits(x) || aheadRest.has(x) || ahead.has(x);
+      const sweepTake = (x: Node) => { take(x); aheadRest.delete(x); ahead.delete(x); };
+      const claimNear = (t: Node, out: Node[]) => {
+        const n = claimFor(t, body0(), sweepWaits, sweepTake, CLAIM_MAX);
+        if (!n) return false;
+        out.push(n);
+        if (n.nodeType === 1 && (n as Element).getElementsByTagName('*')[BIG_READ]) bigAhead.add(n);
+        return true;
       };
-      window.addEventListener('scroll', onScroll, { passive: true });
+      /** The first and last child of `e` to walk for band [top, bottom) (see bandRange); all of them when its children's boxes are not in order. */
+      const across = (e: Element, top: number, bottom: number): [ChildNode | null, ChildNode | null] => {
+        const ch = e.children;
+        const r = bandRange(ch.length, (i) => ch[i]!.getBoundingClientRect(), top, bottom);
+        return r ? [r[0] > 0 ? ch[r[0]]! : e.firstChild, r[1] < ch.length - 1 ? ch[r[1]]! : e.lastChild] : [e.firstChild, e.lastChild];
+      };
+      /**
+       * The waiting nodes of the page's part across band [top, bottom) of the window, in the page's order, into `out` while it has `room`;
+       * false once the look's time or claims are used up. A box outside the band is passed with what is in it; inside it, what is in it is
+       * not measured again. A box with no area: `display: contents` is entered; any other (a collapsed float, a wrapper of height 0 around
+       * placed parts, or hidden) has its child elements looked at by their own boxes, one level only (review P2c of 4b12e5fb: passed with
+       * all in it, a placed post in it waited for the backlog), its texts not (no place); a child there in the band claims the wrapper
+       * when that waits (claimFor: the outermost waiting part around it).
+       */
+      /** A node to walk: [node, inside the band, under a wrapper with no box (1; 2: one that waits), the node it was found in]. */
+      type Walk = [Node, boolean, number, Node | null];
+      /**
+       * The walk of the window that ran out of its SWEEP_MS, for the next frame (a frame of its own is asked for) and the next looks to go on
+       * from, up to SWEEP_FRAMES frames and while the window stays within a screen of where it began; then a walk starts again from the body.
+       * Started again from the body each look, a long stretch before the window's own parts (many nodes in the band) was walked again and
+       * again and what was in the window never claimed (scroll-look-rand seeds 6 and 84: 0 claims a look, every look).
+       */
+      let viewWalk: { stack: Walk[]; frames: number; y: number; pane: boolean } | null = null;
+      /** A walk met a box in the band whose content scrolls (see sweep: the frames going on with it take the hit tests again). */
+      let metPane = false;
+      /** Per look: the children on the way from the body down to each element under the look's points, by parent (see walkBand). */
+      let onWay = new Map<Node, Set<Node>>();
+      const walkBand = (stack: Walk[], body: HTMLElement, top: number, bottom: number, t0: number, room: number, out: Node[]) => {
+        const vw = window.innerWidth;
+        const again = new Set<Node>();
+        for (let k = 0; stack.length; k++) {
+          if (out.length >= room || ((k & 31) === 31 && performance.now() - t0 > SWEEP_MS)) return false;
+          const [n, inside, under, up] = stack.pop()!;
+          // Taken out of the page since it was put on the stack (a walk resumed in a later frame): its parent is walked again instead, once.
+          if (!n.isConnected) {
+            if (up?.isConnected && !again.has(up)) {
+              again.add(up);
+              stack.push([up, false, 0, up.parentNode]);
+            }
+            continue;
+          }
+          let into = inside;
+          if (n.nodeType === 1) {
+            const e = n as Element;
+            if (e.matches(SWEEP_SKIP)) continue;
+            if (!inside) {
+              const r = e.getBoundingClientRect();
+              if (r.width && r.height) {
+                // Outside the band: passed with what is in it, unless its content scrolls (a pane's rows lie past its box, clipped: the
+                // rows about to scroll into it were never looked at).
+                if ((r.bottom <= top || r.top >= bottom || r.right <= 0 || r.left >= vw) && e.scrollHeight <= e.clientHeight + 1) continue;
+                // A pane that scrolls holds more than its box shows: its rows are measured (taken as inside, the rows above and below
+                // the pane's view were claimed first, ahead of those in it).
+                const scrolls = e.scrollHeight > e.clientHeight + 1;
+                if (scrolls) metPane = true;
+                into = r.top >= top && r.bottom <= bottom && !scrolls;
+              } else if (getComputedStyle(e).display !== 'contents') {
+                if (under) continue;
+                const w = sweepWaits(e) ? 2 : 1;
+                for (let c = e.lastElementChild; c; c = c.previousElementSibling) stack.push([c, false, w, e]);
+                continue;
+              }
+            }
+          } else if (n.nodeType === 3 ? under > 0 : n.nodeType !== 11) continue;
+          if (n !== body && (under === 2 || sweepWaits(n)) && claimNear(n, out)) continue;
+          // A long list across the band edge (a feed of 3,000 posts): only its part across the band, found by halving (a box each try).
+          // A part on the way to an element under the look's points is walked too, wherever it is in the list (a pane put in late in a flex
+          // body but shown at the top, `order: -1`, breaks the boxes' order: the halving passed it, and only the rows under the points were
+          // found while it scrolled).
+          let first: ChildNode | null = n.firstChild, last: ChildNode | null = n.lastChild;
+          const way = onWay.get(n);
+          if (!into && n.nodeType === 1 && (n as Element).childElementCount > SWEEP_LIST) {
+            [first, last] = across(n as Element, top, bottom);
+            if (way) {
+              const walked = new Set<Node>();
+              for (let c = last; c; c = c === first ? null : c.previousSibling) walked.add(c);
+              for (const c of way) if (!walked.has(c)) stack.push([c, false, 0, n]);
+            }
+          }
+          for (let c = last; c; c = c === first ? null : c.previousSibling) stack.push([c, into, 0, n]);
+          const sr = n.nodeType === 1 ? (n as Element).shadowRoot : null;
+          if (sr) stack.push([sr, into, 0, n]);
+        }
+        return true;
+      };
+      // Which way the window scrolled last (from where it was at the scroll before).
+      let down = true;
+      let lastY = window.scrollY;
+      /**
+       * How fast the last scroll went (px/ms, of the window or a pane), so the band ahead reaches as far as it moves before the look after
+       * next (the browser pin's pane: about 10 px/ms, 1,000 px between looks, more than the band of a screen).
+       */
+      let speed = 0, speedAt = 0, speedY = 0;
+      let speedOf: EventTarget | null = null;
+      let lastLook = -Infinity;
+      let sweepTokens = 2 * SWEEP_CLAIMS;
+      const sweep = () => {
+        const body = document.body;
+        // A look that walks nothing ends the walk of the window kept from before (review P2e of 02c01fdd: with nothing waiting it asked for a
+        // frame every frame for the life of the scan, its stack kept alive).
+        if (!body || (!queue.size && !fresh.size && !newer.size && !aheadRest.size && !ahead.size)) return void (viewWalk = null);
+        const t0 = performance.now();
+        sweepTokens = Math.min(2 * SWEEP_CLAIMS, sweepTokens + ((t0 - lastLook) * SWEEP_RATE) / 1000);
+        lastLook = t0;
+        const room = Math.min(SWEEP_CLAIMS, Math.floor(sweepTokens));
+        if (room < 1) return void (viewWalk = null);
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const now: Node[] = [];
+        const soon: Node[] = [];
+        // What it claimed goes ahead also when it throws partway (taken from the backlog, it must still be read).
+        try {
+          // The hit tests first (a claim writes nothing: the hit tests and boxes cost one layout), then the window in the page's order, then
+          // what is under the points.
+          // A walk of the window going on (see viewWalk): no hit tests again (review P1 of 3e63273a: up to SWEEP_FRAMES frames a look, each
+          // with its 32 hit tests, about 10 ms on a page of 9,000 posts); what they found is claimed or on the walk's stack already. Unless
+          // the walk met a box that scrolls (a pane's rows move under the points while the walk goes on: without them the scroll-first pin's
+          // fast pane was covered later, median 1,328 ms against 848).
+          const on = viewWalk && viewWalk.frames < SWEEP_FRAMES && Math.abs(window.scrollY - viewWalk.y) < vh ? viewWalk : null;
+          const hits = new Set<Element>();
+          // Hit tests that throw end the hit tests, not the look: its walks go on, and the throw is raised after them (see step).
+          let hitThrew: { e: unknown } | undefined;
+          if (!on || on.pane) try {
+            for (let y = 0; y < SWEEP_Y; y++) for (let x = 0; x < SWEEP_X; x++) {
+              const e = document.elementFromPoint(((x + 0.5) * vw) / SWEEP_X, ((y + 0.5) * vh) / SWEEP_Y);
+              if (e && e !== body && e !== document.documentElement) hits.add(e);
+            }
+          } catch (e) {
+            hitThrew = { e };
+          }
+          onWay = new Map();
+          for (const e of hits) {
+            for (let c: Node = e, p = c.parentNode; p && c !== body; c = p, p = c.parentNode) {
+              const kids = onWay.get(p);
+              if (kids?.has(c)) break;
+              if (kids) kids.add(c);
+              else onWay.set(p, new Set([c]));
+            }
+          }
+          // The walks have SWEEP_MS of their own from here (counted from the look's start, the hit tests used it all on a page of 9,000 posts:
+          // 72 of them took 24 ms there, and the walks stopped at their first node).
+          const tw = performance.now();
+          const stack: Walk[] = on ? on.stack : [[body, false, 0, null]];
+          metPane = false;
+          let more = walkBand(stack, body, 0, vh, tw, room, now);
+          viewWalk = more ? null : { stack, frames: (on?.frames ?? 0) + 1, y: on?.y ?? window.scrollY, pane: (on?.pane ?? false) || metPane };
+          for (const e of hits) {
+            if (now.length >= room) break;
+            if (claimNear(e, now)) continue;
+            for (let c = e.firstChild; c && now.length < room; c = c.nextSibling) if (c.nodeType === 3 && sweepWaits(c)) claimNear(c, now);
+          }
+          // A screen ahead, or as far as the scroll goes in 2.5 looks when it is faster (at most SWEEP_SCREENS screens).
+          const far = performance.now() - speedAt < 2 * SCROLL_LOOK_MS ? Math.min(SWEEP_SCREENS * vh, Math.max(vh, 2.5 * speed * SCROLL_LOOK_MS)) : vh;
+          for (const [top, bottom] of down ? [[vh, vh + far], [-vh, 0]] : [[-far, 0], [vh, 2 * vh]]) {
+            if (!more || !(more = walkBand([[body, false, 0, null]], body, top!, bottom!, tw, room - now.length, soon))) break;
+          }
+          if (hitThrew) throw hitThrew.e;
+        } finally {
+          onWay = new Map();
+          sweepTokens -= now.length + soon.length;
+          if (now.length || soon.length) {
+            ahead = new Set([...now, ...soon, ...ahead]);
+            scrollFed = true;
+            if (timer === undefined) timer = window.setTimeout(drain, 0);
+          }
+        }
+      };
+      /** The look for a scroll, in the next animation frame (its hit tests and boxes then cost the frame's own layout). */
+      const lookForScroll = () => {
+        scrollTimer = undefined;
+        if (scanner !== sc || scrollFrame) return;
+        scrollFrame = requestAnimationFrame(() => {
+          scrollFrame = 0;
+          if (scanner !== sc) return;
+          // A throw reaches the browser once a scan, and a pass is still asked for (see step).
+          step('sweep', sweep, () => afterThrow(true));
+          // The window's walk not done: on in the next frame (see viewWalk).
+          if (viewWalk && viewWalk.frames < SWEEP_FRAMES && scanner === sc) lookForScroll();
+        });
+      };
+      const onScroll = (e: Event) => {
+        if (scanner !== sc) {
+          window.removeEventListener('scroll', onScroll, true);
+          window.removeEventListener('resize', onScroll);
+          return;
+        }
+        if (e.type === 'scroll' && (e.target === document || e.target === window)) {
+          const y = window.scrollY;
+          if (y !== lastY) down = y > lastY;
+          lastY = y;
+        }
+        if (e.type === 'scroll') {
+          const el = e.target instanceof Element ? e.target : null;
+          const y = el ? el.scrollTop : window.scrollY;
+          const now = performance.now();
+          const same = speedOf === e.target;
+          const v = same && now > speedAt && now - speedAt < 500 ? Math.abs(y - speedY) / (now - speedAt) : 0;
+          speed = same ? (speed + v) / 2 : v;
+          // A pane's way too (its rows come in from below when its top goes down).
+          if (el && same && y !== speedY) down = y > speedY;
+          speedOf = e.target;
+          speedAt = now;
+          speedY = y;
+        }
+        if (document.readyState === 'loading' || scrollTimer !== undefined || scrollFrame) return;
+        if (!queue.size && !fresh.size && !newer.size && !aheadRest.size && !ahead.size) return;
+        // At most one look a SCROLL_LOOK_MS; one asked for during the wait shows where the scrolling went.
+        const wait = lastLook + SCROLL_LOOK_MS - performance.now();
+        if (wait <= 0) lookForScroll();
+        else scrollTimer = window.setTimeout(lookForScroll, wait);
+      };
+      // Capture: a pane's own scroll (no bubbling) is seen too. Taken off by stop() (the old scan's look kept alive until the next scroll).
+      window.addEventListener('scroll', onScroll, { passive: true, capture: true });
+      window.addEventListener('resize', onScroll, { passive: true });
+      unlisten = () => {
+        window.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('resize', onScroll);
+        viewWalk = null;
+      };
     };
 
     const begin = async () => {

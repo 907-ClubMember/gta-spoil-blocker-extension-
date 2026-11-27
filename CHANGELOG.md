@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.20
+
+### Highlights
+
+- When you scroll down a long page, what is about to come into view is now checked first, so names there are covered much sooner.
+
+### Fixes
+
+#### All sites
+- When you scroll down a long page, what is about to come into view is now checked first, so names there are covered much sooner.
+
+### Known issue
+
+- Text far below the visible area (for example far down a long thread) can be covered later than before unless you scroll to it.
+
 ## 0.1.19
 
 ### Highlights
